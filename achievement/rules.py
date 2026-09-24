@@ -314,8 +314,49 @@ def _fentuan_label(t):
     return re.sub(r"分团分团", "分团", x)
 
 
+# 中层管理：助理类、授课人类、队长类、监督/督导/顾问/教练/领队类、首席/组长/领养人类、家族职位、联课组别、校内服务负责人（上级 2026-09-24）
+MID_RE = re.compile(r"助理(?!总学长)|助教|授课人|小教练|教官|副教(?!练)|队长|监督|督导|顾问|(?<!小)教练|领队|首席|组长|领养人|家族|组别|校内服务负责人")
+MID_SPLIT = re.compile(r"[+＋、，,/]|兼")
+
+
+def _mid_label(p):
+    p = re.sub(r"^会员[（(](.*)[）)]$", r"\1", p.strip())
+    m = re.search(r"(总|正|副|小|中|分)?队长", p)
+    if m and not re.search(r"助理|助教|授课人|小教练|教官|副教|监督|督导|顾问|教练|领队|首席|组长|领养人|家族|组别|校内服务负责人", p):
+        return m.group(0).replace("正队长", "队长")
+    return p
+
+
+def _classify_mid(t, club_name):
+    """含中层职位的一条：拆出中层部分；同一条里的其它职位照原规则分类。"""
+    c = clean_role(t, club_name) or t
+    c = re.sub(r"^会员[（(](.*)[）)]$", r"\1", c)
+    full = c.strip("。.· ")
+    c = re.sub(r"[（(][^）)]*[）)]", "", c).strip("。.· ") or c   # 去掉「（已取消，但有进行筹备工作）」这类备注
+    if not MID_RE.search(c):   # 中层字眼只在括号里，如「家族家长（小组组长）」→ 整条算一个
+        return {"mid": [full]}
+    if "校内服务负责人" in c:   # 「校内服务负责人：新春快闪、运动会…演出」→ 拆开，每项各算 1 个（上级 2026-09-24）
+        items = [x.strip("·：: ") for x in re.split(r"[、，,；;/]", c.split("校内服务负责人", 1)[1]) if x.strip("·：: ")]
+        return {"mid": list(dict.fromkeys(f"校内服务负责人·{x}" for x in items)) or ["校内服务负责人"]}
+    if re.match(r"(负责)?(监督|督导)", c):   # 「监督壁报股，多媒体，课程…」：整条都是监督的对象，不拆
+        return {"mid": [c]}
+    parts = [x for x in (p.strip("·").strip() for p in MID_SPLIT.split(c)) if x]
+    mids = [_mid_label(p) for p in parts if MID_RE.search(p)]
+    rest = [p for p in parts if not MID_RE.search(p)]
+    if not mids:
+        mids = [_mid_label(c)]
+    out = {"mid": list(dict.fromkeys(mids))}
+    if rest:
+        r = classify_role(rest[0], club_name) if len(rest) == 1 else {"other": "、".join(rest)}
+        if r:
+            for k in ("std", "other"):
+                if r.get(k):
+                    out[k] = r[k]
+    return out
+
+
 def classify_role(raw, club_name=""):
-    """返回 {'std': 标准写法} 或 {'other': 其它职位名} 或 None"""
+    """返回 {'std': 标准写法} / {'other': 其它职位名} / {'mid': [中层职位…]}（可同时有）或 None"""
     t = norm(raw)
     t = re.sub(r"^\d{1,2}[，,、.．]", "", t)
     t = re.sub(r"[。；;，,.]+$", "", t)
@@ -323,16 +364,19 @@ def classify_role(raw, club_name=""):
         return None
     if "助理总学长" in t:
         return {"std": "助理总学长"}
-    if re.search(r"会员|团员|队员", t) and "组员" not in t:
-        return {"std": "会员"}
-    # 上级 2026-09-24：童军「分团」职位、监督/督导/顾问/教练/领队类、小队长/中队长/分队长 → 一律算「会员」
-    if "分团" in t or SUPERVISE.search(t) or (re.search(r"小队|中队|分队", t) and "长" in t):
-        return {"std": "会员"}
     # 上级 2026-09-24：合唱团「音乐主席」、二十四节令鼓队的队长类，等级与执委主席相同
     if "音乐主席" in t:
         return {"std": f"主席({_side(t, '音乐主席') or _no_side(t)})"}
     if "节令鼓" in norm(club_name or "") + t and re.search(r"队长", t):
         return {"std": f"主席({'副' if '副队长' in t else '正'})"}
+    # 上级 2026-09-24：助理类、授课人类（含助教、小教练、教官）、队长类、监督/督导/顾问/教练/领队类 → 从执委/会员分开，另计「中层管理」
+    if MID_RE.search(t):
+        return _classify_mid(t, club_name)
+    if re.search(r"会员|团员|队员", t) and "组员" not in t:
+        return {"std": "会员"}
+    # 上级 2026-09-24：童军「分团」职位（队长类除外）→ 算「会员」
+    if "分团" in t:
+        return {"std": "会员"}
     if not NOT_TITLE.search(t):
         if "总学长" in t:
             s = _side(t, "总学长")
@@ -354,17 +398,20 @@ def classify_role(raw, club_name=""):
 
 
 def standard_roles_from(classified):
-    """同一年同一学会的职务 → 标准写法清单 + 职务数。
-    其它职位合并成一个「执委(A,B)」（计 A、B 两个）；童军分团职位是独立的「执委(XXX)」，不合并。"""
-    std, other = [], []
+    """同一年同一学会的职务 → (执委标准写法清单, 职务数, 中层清单)。
+    其它职位合并成一个「执委(A,B)」（计 A、B 两个）；会员不计职务数；
+    中层（助理类、授课人类、队长类）另列，中层数 = 不同中层职位的个数。"""
+    std, other, mid = [], [], []
     for r in classified:
         if not r:
             continue
-        if "other" in r:
-            if r["other"] not in other:
-                other.append(r["other"])
-        elif r["std"] not in std:
+        if r.get("other") and r["other"] not in other:
+            other.append(r["other"])
+        if r.get("std") and r["std"] not in std:
             std.append(r["std"])
+        for m in r.get("mid") or []:
+            if m not in mid:
+                mid.append(m)
     out = [x for x in std if x != "执委" or not other]
     merged = f"执委({','.join(other)})" if other else None
     if merged:
@@ -372,7 +419,7 @@ def standard_roles_from(classified):
     if len(out) > 1:
         out = [x for x in out if x != "会员"]
     count = sum(len(other) if x == merged else (0 if x == "会员" else 1) for x in out)
-    return out, count
+    return out, count, mid
 
 
 # ---------------------------------------------------------------- 获奖识别
@@ -477,7 +524,8 @@ def is_school_sports(text) -> bool:
 
 
 # 高三毕联会（毕业班联合会）属于年级，不属于学会：不计执委也不计筹委（上级 2026-09-24）
-GRADE_ORG = re.compile(r"毕联|毕业班联合会|毕业联合会|毕业班联")
+# 上级 2026-09-24：编辑工委会、广告工委会、教师节工委会都属于高三年级组 / 毕联会
+GRADE_ORG = re.compile(r"毕联|毕业班联合会|毕业联合会|毕业班联|年级组|(?:编辑|广告|教师节)工委会")
 
 
 def _split_grade_parts(arr):
@@ -526,15 +574,40 @@ def _sports_class(text) -> bool:
     return bool(SCHOOL_SPORTS.search(t) and "班级" in t)
 
 
+# 上级 2026-09-24：「监督XX主席」「督导XXX主席」属于活动筹委（移到筹委）；其它监督/督导类仍算会员
+SUPERVISE_CHAIR = re.compile(r"(监督|督导).*主席|主席.{0,3}(监督|督导)|(监督|督导)(正|副)?主席")
+
+
+def is_supervise_chair(text) -> bool:
+    return bool(SUPERVISE_CHAIR.search(norm(text)))
+
+
+def _split_supervise(arr):
+    """「执委主席监督成果汇报主席监督《弈德杯》…主席」这种连在一起的，拆成「执委主席」+ 各个「监督…主席」。"""
+    out = []
+    for t in arr:
+        n = norm(t)
+        parts = [p for p in re.split(r"(?=监督|督导)", n) if p]
+        if len(parts) > 1 and re.fullmatch(r"(执委)?(正|副)?主席|执委(正|副)主席", parts[0]):
+            out.extend(parts)
+        else:
+            out.append(t)
+    return out
+
+
 def move_event_roles(s):
     for b in s["blocks"]:
         for k in ("role", "comm"):
             if k in b["cats"]:
                 b["cats"][k] = _split_grade_parts(b["cats"][k])
+        if "role" in b["cats"]:
+            b["cats"]["role"] = _split_supervise(b["cats"]["role"])
         roles, comms = b["cats"].get("role", []), b["cats"].get("comm", [])
         # 运动会 / 田径赛的职位算「服务筹委团」（上级 2026-09-24 改定），也移到筹委
         to_comm = [t for t in roles if (is_event_committee(t) or is_school_sports(t)) and not _sports_class(t)]
-        to_role = [t for t in comms if SUPERVISE.search(norm(t)) and not is_school_sports(t)]
+        to_comm += [t for t in roles if is_supervise_chair(t) and t not in to_comm]
+        # 「校内服务负责人」留在执委栏，算中层管理（上级 2026-09-24 最新）
+        to_role = [t for t in comms if SUPERVISE.search(norm(t)) and not is_school_sports(t) and not is_supervise_chair(t)]
         if not to_comm and not to_role:
             continue
         new_role = [t for t in roles if t not in to_comm] + to_role
@@ -555,9 +628,11 @@ def compute_exclusions(s):
             b["ex"][k] = ["以班级为单位，不计" if (k not in CLASS_EXEMPT and CLASS_RE.search(t)) else None for t in arr]
             # 毕联会属于年级：它的职位、筹委不计；服务时数、活动照算（上级 2026-09-24 纠正）
             if k in ("role", "comm"):
-                b["ex"][k] = [e or ("毕联会属于年级，不属于学会，职位/筹委不计" if GRADE_ORG.search(norm(t)) else None) for e, t in zip(b["ex"][k], arr)]
+                b["ex"][k] = [e or ("毕联会/高三年级组属于年级，不属于学会，职位/筹委不计" if GRADE_ORG.search(norm(t)) else None) for e, t in zip(b["ex"][k], arr)]
             if k in ("role", "comm"):
                 b["ex"][k] = [e or ("班级的运动会活动，不计" if _sports_class(t) else None) for e, t in zip(b["ex"][k], arr)]
+            # 感恩聚会不算学会活动（所有栏目都不计）（上级 2026-09-24）
+            b["ex"][k] = [e or ("感恩聚会不算学会活动，不计" if "感恩聚会" in norm(t) else None) for e, t in zip(b["ex"][k], arr)]
             # 运动会义卖不计（所有栏目）；运动会上的演出、服务照算（上级 2026-09-24）
             b["ex"][k] = [e or ("运动会义卖不计" if is_sports_sale(t) else None) for e, t in zip(b["ex"][k], arr)]
 
@@ -621,6 +696,11 @@ def item_state(s, b, k, i, ov):
             "unsure": bool(b["unsure"].get(f"{k}#{i}")) and not m}
 
 
+def mid_by_block(s, ov=None, year=None):
+    bl = [b for b in s["blocks"] if not year or b["year"] == year]
+    return [standard_roles_from([b["rc"][i] for i in range(len(b["cats"].get("role", []))) if item_state(s, b, "role", i, ov)["inc"]])[2] for b in bl]
+
+
 def compute_stats(s, ov=None, year=None):
     bl = [b for b in s["blocks"] if not year or b["year"] == year]
     c = Counter()
@@ -636,9 +716,10 @@ def compute_stats(s, ov=None, year=None):
                     c[k] += 1
                     if k in ("extComp", "intComp") and b["aw"][k][i]:
                         c["extAwards" if k == "extComp" else "intAwards"] += 1
-        rl, rc = standard_roles_from([b["rc"][i] for i in range(len(b["cats"].get("role", []))) if item_state(s, b, "role", i, ov)["inc"]])
+        rl, rc, ml = standard_roles_from([b["rc"][i] for i in range(len(b["cats"].get("role", []))) if item_state(s, b, "role", i, ov)["inc"]])
         roles_by_block.append(rl)
         c["roles"] += rc
+        c["mid"] += len(ml)
         if b["exBlock"]:
             continue
         # 服务时数 = 该年采用的时数（自填总数优先），再扣掉不计入的服务项的时数
@@ -648,7 +729,7 @@ def compute_stats(s, ov=None, year=None):
                 if not item_state(s, b, k, i, ov)["inc"] and b["hr"][k][i]:
                     h -= b["hr"][k][i]
         hours += max(0.0, h)
-    out = {k: c[k] for k in ("roles", "comm", "extComp", "intComp", "extAct", "intAct", "extSvc", "intSvc", "team", "badge", "honor", "unsure", "extAwards", "intAwards")}
+    out = {k: c[k] for k in ("roles", "mid", "comm", "extComp", "intComp", "extAct", "intAct", "extSvc", "intSvc", "team", "badge", "honor", "unsure", "extAwards", "intAwards")}
     out["awards"] = out["extAwards"] + out["intAwards"]
     out["hours"] = round(hours, 2)
     return out, roles_by_block

@@ -33,6 +33,7 @@ const COLS=[
   {k:'nyears',t:'年数',num:1,get:s=>new Set(s.years).size},
   {k:'roleLatest',t:'职务（最新一年）',get:(s,st)=>st.roleLatest||''},
   {k:'roles',t:'职务数',num:1},
+  {k:'mid',t:'中层管理',num:1},
   {k:'comm',t:'筹委',num:1},
   {k:'comp',t:'比赛',num:1,get:(s,st)=>st.extComp+st.intComp},
   {k:'awards',t:'获奖 ★',num:1},
@@ -104,19 +105,20 @@ function yearGroups(s){const g=[];for(const b of s.blocks){let x=g.find(y=>y.yea
 const spBadge=s=>(s.special||[]).map(x=>`<span class="sp" title="特别标记">★ ${esc(x)}</span>`).join('');
 function simpleView(s){
   const groups=yearGroups(s);const tot=statsFor(s,'');
-  let h=`<div class="simple-wrap"><table class="simple"><thead><tr><th>年份</th><th>班级</th><th>学会</th><th>执委 &amp; 中层</th><th class="num">筹委<br><span>数量</span></th><th class="num">服务<br><span>小时</span></th><th class="num">活动<br><span>数量</span></th><th class="num">工作<br><span>数量</span></th><th class="num">比赛<br><span>数量（获奖）</span></th></tr></thead><tbody>`;
+  let h=`<div class="simple-wrap"><table class="simple"><thead><tr><th>年份</th><th>班级</th><th>学会</th><th>执委</th><th>中层管理</th><th class="num">筹委<br><span>数量</span></th><th class="num">服务<br><span>小时</span></th><th class="num">活动<br><span>数量</span></th><th class="num">工作<br><span>数量</span></th><th class="num">比赛<br><span>数量（获奖）</span></th></tr></thead><tbody>`;
   for(const g of groups){
     const st=C.computeStats(Object.assign({},s,{blocks:g.blocks}),OV,null);
     const multi=g.blocks.length>1;
     const roles=g.blocks.map(b=>{const l=st.roleByBlock.get(b)||[];const sp=[...new Set(Object.values(b.sp||{}).flat().filter(Boolean))].map(x=>`<span class="sp">★ ${esc(x)}</span>`).join('');if(b.exBlock||(!l.length&&!sp))return '';return (multi?`<span class="muted">${esc(b.clubName)}：</span>`:'')+l.map(esc).join('、')+sp}).filter(Boolean).join('<br>')||'<span class="zero">—</span>';
+    const mids=g.blocks.map(b=>{const l=st.midByBlock.get(b)||[];if(b.exBlock||!l.length)return '';return (multi?`<span class="muted">${esc(b.clubName)}：</span>`:'')+l.map(esc).join('、')}).filter(Boolean).join('<br>')||'<span class="zero">—</span>';
     const clubs=g.blocks.map(b=>`${esc((b.clubCode?b.clubCode+' ':'')+b.clubName)}${b.exBlock?' <span class="tag ex">B类不计</span>':''}`).join('<br>');
     const cls=[...new Set(g.blocks.map(b=>b.cls).filter(Boolean))].join(' / ');
     const n=v=>v?v:'<span class="zero">0</span>';
     const comp=st.extComp+st.intComp;
-    h+=`<tr data-year="${g.year??''}" title="点击查看这一年的详细内容"><td class="y">${g.year||'年份不明'}</td><td>${esc(cls)}</td><td>${clubs}</td><td class="roles">${roles}</td><td class="num">${n(st.comm)}</td><td class="num">${st.hours?fmt(st.hours):'<span class="zero">0</span>'}</td><td class="num">${n(st.extAct+st.intAct)}</td><td class="num">${n(st.team)}</td><td class="num">${comp?comp+(st.awards?` <span class="aw">（${st.awards}★）</span>`:''):'<span class="zero">0</span>'}</td></tr>`;
+    h+=`<tr data-year="${g.year??''}" title="点击查看这一年的详细内容"><td class="y">${g.year||'年份不明'}</td><td>${esc(cls)}</td><td>${clubs}</td><td class="roles">${roles}</td><td class="roles">${mids}</td><td class="num">${n(st.comm)}</td><td class="num">${st.hours?fmt(st.hours):'<span class="zero">0</span>'}</td><td class="num">${n(st.extAct+st.intAct)}</td><td class="num">${n(st.team)}</td><td class="num">${comp?comp+(st.awards?` <span class="aw">（${st.awards}★）</span>`:''):'<span class="zero">0</span>'}</td></tr>`;
   }
   const tc=tot.extComp+tot.intComp;
-  h+=`</tbody><tfoot><tr><td>合计</td><td></td><td></td><td>职务 ${tot.roles} 个<span class="muted">（不含会员）</span></td><td class="num">${tot.comm}</td><td class="num">${fmt(tot.hours)}</td><td class="num">${tot.extAct+tot.intAct}</td><td class="num">${tot.team}</td><td class="num">${tc}${tot.awards?` <span class="aw">（${tot.awards}★）</span>`:''}</td></tr></tfoot></table></div>`;
+  h+=`</tbody><tfoot><tr><td>合计</td><td></td><td></td><td>职务 ${tot.roles} 个<span class="muted">（不含会员）</span></td><td>中层管理 ${tot.mid} 个</td><td class="num">${tot.comm}</td><td class="num">${fmt(tot.hours)}</td><td class="num">${tot.extAct+tot.intAct}</td><td class="num">${tot.team}</td><td class="num">${tc}${tot.awards?` <span class="aw">（${tot.awards}★）</span>`:''}</td></tr></tfoot></table></div>`;
   h+=`<p class="muted" style="font-size:12px;margin-top:8px">只计入符合规则的条目（不计入的在「详细」里以灰色划线显示）。活动＝校内外活动，工作＝团内工作/表演，比赛＝校内外比赛。点任一年可跳到「详细」。</p>`;
   return h;
 }
@@ -125,7 +127,7 @@ function openDrawer(s,jumpYear){
   CUR=s;const st=statsFor(s,'');
   $('#dname').innerHTML=`${esc(s.cn)} <span class="muted" style="font-size:14px;font-weight:400">${esc(s.en)}</span>`;
   $('#dmeta').innerHTML=`学号 ${esc(s.sid||'—')} · ${esc(s.cls)} · <span class="pill">${esc(s.code)}</span> ${esc(s.club)}${s.clubs.length>1?' · 曾参与：'+s.clubs.map(esc).join('、'):''}${spBadge(s)}`;
-  $('#dmini').innerHTML=[['服务时数',fmt(st.hours)],['职务数',st.roles],['筹委',st.comm],['比赛',st.extComp+st.intComp],['获奖 ★',st.awards],['活动',st.extAct+st.intAct],['团内工作',st.team],['服务项',st.extSvc+st.intSvc]].map(([k,v])=>`<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  $('#dmini').innerHTML=[['服务时数',fmt(st.hours)],['职务数',st.roles],['中层管理',st.mid],['筹委',st.comm],['比赛',st.extComp+st.intComp],['获奖 ★',st.awards],['活动',st.extAct+st.intAct],['团内工作',st.team],['服务项',st.extSvc+st.intSvc]].map(([k,v])=>`<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
   let h=`<div class="seg" role="tablist"><button data-m="simple" class="${DMODE==='simple'?'on':''}">简单</button><button data-m="detail" class="${DMODE==='detail'?'on':''}">详细</button></div>`;
   if(DMODE==='simple'){
     h+=simpleView(s);
@@ -143,11 +145,11 @@ function openDrawer(s,jumpYear){
       const isComp=c.key==='extComp'||c.key==='intComp';
       const lis=b.cats[c.key].map((it,i)=>{const x=C.itemState(s,b,c.key,i,OV);
         const spl=b.sp&&b.sp[c.key]&&b.sp[c.key][i];
-        const tags=(spl?`<span class="tag sp" title="特别标记">★ ${esc(spl)}</span>`:'')+(x.inc?'':`<span class="tag ex">${esc(x.reason||'不计')}</span>`)+(x.unsure?'<span class="tag uns">待确认</span>':'')+(x.manual?'<span class="tag man">已手动调整</span>':'')+((c.key==='extSvc'||c.key==='intSvc')&&x.inc&&b.declaredTotal==null&&!(b.hr[c.key]&&b.hr[c.key][i])?'<span class="tag uns" title="这一项没有写小时数，服务时数按 0 计">未写时数</span>':'')+(b.mv&&b.mv[c.key]&&b.mv[c.key][i]?(c.key==='comm'?'<span class="tag mv" title="为活动而组成的筹委职位，按规则从执委栏移到筹委">原写在执委栏</span>':'<span class="tag mv" title="监督/督导/顾问/教练/领队类一律算执委">原写在筹委栏</span>'):'');
+        const tags=(spl?`<span class="tag sp" title="特别标记">★ ${esc(spl)}</span>`:'')+(x.inc?'':`<span class="tag ex">${esc(x.reason||'不计')}</span>`)+(x.unsure?'<span class="tag uns">待确认</span>':'')+(x.manual?'<span class="tag man">已手动调整</span>':'')+((c.key==='extSvc'||c.key==='intSvc')&&x.inc&&b.declaredTotal==null&&!(b.hr[c.key]&&b.hr[c.key][i])?'<span class="tag uns" title="这一项没有写小时数，服务时数按 0 计">未写时数</span>':'')+(b.mv&&b.mv[c.key]&&b.mv[c.key][i]?(c.key==='comm'?'<span class="tag mv" title="为活动而组成的筹委职位（含「监督/督导XX主席」），按规则从执委栏移到筹委">原写在执委栏</span>':'<span class="tag mv" title="监督/督导/顾问/教练/领队类（「监督XX主席」除外）算中层管理">原写在筹委栏</span>'):'');
         const btn=b.exBlock?'':`<button class="tg" data-b="${s.blocks.indexOf(b)}" data-k="${c.key}" data-i="${i}">${x.inc?'不计':'计入'}</button>`;
         return `<li class="${x.inc?'':'ex'} ${spl?'spi':''} ${x.inc&&isComp&&C.isAward(it)?'aw':''}"><span class="it">${hi(it)}</span>${tags}${btn}</li>`}).join('');
       const nInc=b.cats[c.key].filter((it,i)=>C.itemState(s,b,c.key,i,OV).inc).length;
-      if(c.key==='role'){const std=st.roleByBlock.get(b)||[];h+=`<div class="cat"><div class="cl">执委/职务 · ${nInc}</div><div><div class="stdrole">${std.map(x=>`<span class="pill">${esc(x)}</span>`).join('')||'<span class="muted">—</span>'}</div><div class="orig">原文：<ol>${lis}</ol></div></div></div>`;continue}
+      if(c.key==='role'){const std=st.roleByBlock.get(b)||[],mid=st.midByBlock.get(b)||[];h+=`<div class="cat"><div class="cl">执委/职务 · ${nInc}</div><div><div class="stdrole">${std.map(x=>`<span class="pill">${esc(x)}</span>`).join('')||(mid.length?'':'<span class="muted">—</span>')}${mid.map(x=>`<span class="pill mid" title="中层管理（助理/授课人/队长/监督/督导/顾问类），另计「中层管理」">中层管理·${esc(x)}</span>`).join('')}</div><div class="orig">原文：<ol>${lis}</ol></div></div></div>`;continue}
       h+=`<div class="cat"><div class="cl">${c.label} · ${nInc}${nInc!==b.cats[c.key].length?`<span class="muted">/${b.cats[c.key].length}</span>`:''}</div><ol>${lis}</ol></div>`;
     }
     h+='</div></div>';
@@ -170,11 +172,12 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();if(e.k
 
 function openCompare(){
   const ss=[...state.cmp].map(id=>ALL.find(s=>(s.sid||s.file)===id)).filter(Boolean);
-  const rows=[['服务时数','hours'],['职务数（不含会员）','roles'],['筹委','comm'],['校外比赛','extComp'],['校内比赛','intComp'],['获奖 ★','awards'],['校外活动','extAct'],['校内活动','intAct'],['校外服务项','extSvc'],['校内服务项','intSvc'],['团内工作/表演','team'],['考章','badge'],['团内荣誉','honor']];
+  const rows=[['服务时数','hours'],['职务数（不含会员）','roles'],['中层管理','mid'],['筹委','comm'],['校外比赛','extComp'],['校内比赛','intComp'],['获奖 ★','awards'],['校外活动','extAct'],['校内活动','intAct'],['校外服务项','extSvc'],['校内服务项','intSvc'],['团内工作/表演','team'],['考章','badge'],['团内荣誉','honor']];
   $('#dname').textContent=`对比 ${ss.length} 位学生`;$('#dmeta').textContent='绿色为该项最高；点姓名查看完整履历';$('#dmini').innerHTML='';
   let h=`<div class="card" style="overflow:auto"><table class="cmptable"><thead><tr><th></th>${ss.map(s=>`<th><a href="#" data-open="${esc(s.sid||s.file)}">${esc(s.cn)}</a><div class="muted" style="font-weight:400">${esc(s.code)} ${esc(s.club)} · ${esc(s.cls)}</div></th>`).join('')}</tr></thead><tbody>`;
   for(const [t,k] of rows){const vs=ss.map(s=>statsFor(s,'')[k]||0);const mx=Math.max(...vs);h+=`<tr><th style="background:none">${t}</th>${vs.map(v=>`<td class="num ${v===mx&&mx>0?'best':''}">${fmt(v)}</td>`).join('')}</tr>`}
   h+=`<tr><th style="background:none">职务（历年）</th>${ss.map(s=>`<td style="font-size:12px">${[...statsFor(s,'').roleByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>`<div>${b.year}：${esc(l.join('、'))}</div>`).join('')||'—'}</td>`).join('')}</tr>`;
+  h+=`<tr><th style="background:none">中层管理（历年）</th>${ss.map(s=>`<td style="font-size:12px">${[...statsFor(s,'').midByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>`<div>${b.year}：${esc(l.join('、'))}</div>`).join('')||'—'}</td>`).join('')}</tr>`;
   h+=`<tr><th style="background:none">获奖</th>${ss.map(s=>`<td style="font-size:12px">${s.blocks.flatMap(b=>['extComp','intComp'].flatMap(k=>(b.cats[k]||[]).filter((r,i)=>C.itemState(s,b,k,i,OV).inc&&C.isAward(r))).map(r=>`<div>${b.year}：${esc(r)}</div>`)).join('')||'—'}</td>`).join('')}</tr>`;
   h+='</tbody></table></div>';
   $('#dbody').innerHTML=h;
@@ -238,8 +241,8 @@ $('#ovimp').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const 
 // ----- CSV
 $('#csv').onclick=()=>{
   const list=filtered();
-  const head=['学会代号','学会','学号','姓名','英文名','班级','年数','职务（规范写法，历年）','职务数','筹委','校外比赛','校内比赛','获奖','校外活动','校内活动','团内工作','校外服务项','校内服务项','服务时数','待确认条目','特别标记','问题','文件'];
-  const lines=[head].concat(list.map(s=>{const st=statsFor(s,state.year);return[s.code,s.club,s.sid,s.cn,s.en,s.cls,new Set(s.years).size,[...st.roleByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>b.year+'：'+l.join('、')).join('；'),st.roles,st.comm,st.extComp,st.intComp,st.awards,st.extAct,st.intAct,st.team,st.extSvc,st.intSvc,st.hours,st.unsure,(s.special||[]).join('、'),s.issues.join('；'),s.file]}));
+  const head=['学会代号','学会','学号','姓名','英文名','班级','年数','职务（规范写法，历年）','职务数','中层管理（历年）','中层管理数','筹委','校外比赛','校内比赛','获奖','校外活动','校内活动','团内工作','校外服务项','校内服务项','服务时数','待确认条目','特别标记','问题','文件'];
+  const lines=[head].concat(list.map(s=>{const st=statsFor(s,state.year);return[s.code,s.club,s.sid,s.cn,s.en,s.cls,new Set(s.years).size,[...st.roleByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>b.year+'：'+l.join('、')).join('；'),st.roles,[...st.midByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>b.year+'：'+l.join('、')).join('；'),st.mid,st.comm,st.extComp,st.intComp,st.awards,st.extAct,st.intAct,st.team,st.extSvc,st.intSvc,st.hours,st.unsure,(s.special||[]).join('、'),s.issues.join('；'),s.file]}));
   const csv='﻿'+lines.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='成就奖统计'+(state.year?'_'+state.year:'')+'.csv';a.click();
 };

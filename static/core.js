@@ -13,26 +13,27 @@
     const inc=b.exBlock?false:m?m==='in':!auto;
     return {inc,reason:b.exBlock||(m==='out'?'手动设为不计':m==='in'?null:auto),auto,manual:b.exBlock?null:(m||null),unsure:!!(b.unsure&&b.unsure[k+'#'+i])&&!m};
   }
+  // 与 rules.py 的 standard_roles_from 一致：执委标准写法 + 职务数；中层管理（助理/授课人/队长/监督/督导/顾问类）另列
   function rolesFrom(cl){
-    const std=[],other=[];
-    for(const r of cl){if(!r)continue;if(r.other!=null){if(!other.includes(r.other))other.push(r.other)}else if(!std.includes(r.std))std.push(r.std)}
+    const std=[],other=[],mid=[];
+    for(const r of cl){if(!r)continue;if(r.other&&!other.includes(r.other))other.push(r.other);if(r.std&&!std.includes(r.std))std.push(r.std);for(const m of (r.mid||[]))if(!mid.includes(m))mid.push(m)}
     let out=std.filter(x=>x!=='执委'||!other.length);const merged=other.length?`执委(${other.join(',')})`:null;if(merged)out.push(merged);if(out.length>1)out=out.filter(x=>x!=='会员');
-    return {list:out,count:out.reduce((n,x)=>n+(x===merged?other.length:x==='会员'?0:1),0)};
+    return {list:out,count:out.reduce((n,x)=>n+(x===merged?other.length:x==='会员'?0:1),0),mid};
   }
   function computeStats(s,ov,year){
     const bl=s.blocks.filter(b=>!year||b.year==year);
-    const c={roles:0,comm:0,extComp:0,intComp:0,extAct:0,intAct:0,extSvc:0,intSvc:0,team:0,badge:0,honor:0,unsure:0,extAwards:0,intAwards:0};
-    let hours=0;const roleByBlock=new Map();
+    const c={roles:0,mid:0,comm:0,extComp:0,intComp:0,extAct:0,intAct:0,extSvc:0,intSvc:0,team:0,badge:0,honor:0,unsure:0,extAwards:0,intAwards:0};
+    let hours=0;const roleByBlock=new Map(),midByBlock=new Map();
     for(const b of bl){
       for(const [k,arr] of Object.entries(b.cats))arr.forEach((t,i)=>{const x=itemState(s,b,k,i,ov);if(x.unsure)c.unsure++;if(x.inc){if(k in c)c[k]++;if((k==='extComp'||k==='intComp')&&b.aw[k][i])c[k==='extComp'?'extAwards':'intAwards']++}});
-      const r=rolesFrom((b.cats.role||[]).map((t,i)=>itemState(s,b,'role',i,ov).inc?b.rc[i]:null));roleByBlock.set(b,r.list);c.roles+=r.count;
+      const r=rolesFrom((b.cats.role||[]).map((t,i)=>itemState(s,b,'role',i,ov).inc?b.rc[i]:null));roleByBlock.set(b,r.list);midByBlock.set(b,r.mid);c.roles+=r.count;c.mid+=r.mid.length;
       if(b.exBlock)continue;
       // 服务时数 = 该年采用的时数（自填总数优先），再扣掉不计入的服务项
       let h=b.hours||0;
       for(const k of ['extSvc','intSvc'])(b.cats[k]||[]).forEach((t,i)=>{if(!itemState(s,b,k,i,ov).inc&&b.hr[k][i])h-=b.hr[k][i]});
       hours+=Math.max(0,h);
     }
-    return {...c,awards:c.extAwards+c.intAwards,hours:Math.round(hours*100)/100,roleByBlock};
+    return {...c,awards:c.extAwards+c.intAwards,hours:Math.round(hours*100)/100,roleByBlock,midByBlock};
   }
   root.Core={CATS,OTHER,index,isAward,itemKey,itemState,computeStats};
 })(window);
