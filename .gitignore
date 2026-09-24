@@ -1,0 +1,9 @@
+Result/
+.buildenv/
+.buildwork/
+__pycache__/
+*.pyc
+Individual's Utmost Achievement Calculator.exe
+成就奖履历总览.html
+成就奖统计.xlsx
+成就奖_手动调整.json

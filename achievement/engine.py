@@ -1,0 +1,85 @@
+"""读取整个 Result 文件夹：多线程解析 + 按 (修改时间, 大小) 缓存，没改过的文件不重复解析。"""
+from __future__ import annotations
+
+import copy
+import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+from . import rules
+from .reader import read_any
+
+_cache: dict[str, tuple[int, int, dict | None, str | None]] = {}
+_cache_lock = threading.Lock()
+_load_lock = threading.Lock()
+
+
+def list_files(folder: Path):
+    folder = Path(folder)
+    if not folder.is_dir():
+        return []
+    return sorted(p for p in folder.iterdir()
+                  if p.is_file() and p.suffix.lower() in (".xlsx", ".pdf") and not p.name.startswith(("~$", ".")))
+
+
+def folder_version(folder: Path) -> str:
+    """文件夹内容指纹（文件名 + 修改时间 + 大小），任何增删改都会改变它。"""
+    h = hashlib.md5()
+    for p in list_files(folder):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        h.update(f"{p.name}|{st.st_mtime_ns}|{st.st_size}\n".encode("utf-8"))
+    return h.hexdigest()[:16]
+
+
+def _content_count(blocks):
+    return sum(len(a) for b in blocks for a in b["cats"].values())
+
+
+def _parse_uncached(p: Path):
+    best = None
+    for sh in read_any(p):
+        meta, blocks = rules.parse_rows(sh["rows"], sh["pdf"])
+        if best is None or _content_count(blocks) > _content_count(best[1]):
+            best = (meta, blocks)
+    if best is None:
+        raise ValueError("没有可读取的工作表")
+    return rules.build_student(p.name, *best)
+
+
+def parse_file(p: Path):
+    """返回 (学生资料 或 None, 错误讯息 或 None)。坏文件不会让整体出错。"""
+    try:
+        st = p.stat()
+    except OSError as e:
+        return None, str(e)
+    key = str(p.resolve())
+    with _cache_lock:
+        hit = _cache.get(key)
+    if hit and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
+        return hit[2], hit[3]
+    try:
+        raw, err = _parse_uncached(p), None
+    except Exception as e:  # noqa: BLE001
+        raw, err = None, f"{type(e).__name__}: {e}"
+    with _cache_lock:
+        _cache[key] = (st.st_mtime_ns, st.st_size, raw, err)
+    return raw, err
+
+
+def load_folder(folder: Path):
+    files = list_files(folder)
+    with _load_lock:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            results = list(ex.map(parse_file, files))
+    students, failed = [], []
+    for p, (raw, err) in zip(files, results):
+        if err:
+            failed.append((p.name, err))
+        else:
+            students.append(copy.deepcopy(raw))
+    students = rules.finalize(rules.dedupe(students))
+    return students, files, failed
