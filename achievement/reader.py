@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from pathlib import Path
 
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
@@ -10,10 +11,19 @@ logging.getLogger("pdfminer").setLevel(logging.ERROR)
 CJK = r"[　-鿿＀-￯]"
 
 
+# 有些输入法打出的「⼈」「⼯」是康熙部首（U+2F00–U+2FDF / U+2E80–U+2EFF），看起来一样但比对不到「人」「工」
+_RADICAL = re.compile(r"[\u2e80-\u2fdf]")
+
+
+def fix_radicals(s: str) -> str:
+    return _RADICAL.sub(lambda m: unicodedata.normalize("NFKC", m.group()), s)
+
+
 def _cell(v):
     if v is None:
         return None
     if isinstance(v, str):
+        v = fix_radicals(v)
         return v if v.strip() else None
     if isinstance(v, float) and v.is_integer():
         return int(v)
@@ -43,7 +53,7 @@ def read_xlsx(path: Path) -> list[dict]:
 
 
 def _clean(s: str) -> str:
-    s = re.sub(rf"(?<={CJK})\s+(?={CJK})", "", s)
+    s = re.sub(rf"(?<={CJK})\s+(?={CJK})", "", fix_radicals(s))
     return s.strip()
 
 

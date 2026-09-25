@@ -197,14 +197,22 @@ def fingerprint() -> str:
 # ---------------------------------------------------------------- 已知职位一览（参考用，另存成 Excel）
 
 
+def _batches(students):
+    """students 可以是学生清单，或 {届别: 学生清单}（Result 里有年份子文件夹时）"""
+    return students if isinstance(students, dict) else {"": students}
+
+
 def known_roles(students):
-    """把 Result 里所有执委栏（含移栏）的职位，连同系统目前的归类整理成清单。"""
+    """把 Result 里所有执委栏（含移栏）的职位，连同系统目前的归类整理成清单。
+    students 是 {届别: 学生清单} 时，另外记下每一届出现的次数（row["届别"]）。"""
     from collections import Counter, defaultdict
     from . import rules
     R = get()
     stat = {}
     clubs = defaultdict(set)
     cnt = Counter()
+    by_batch = defaultdict(Counter)
+    batch = ""
 
     def add(text, info, club):
         key = rules.norm(text).rstrip("。.;；,，")
@@ -212,10 +220,11 @@ def known_roles(students):
             return
         stat.setdefault(key, {"_原文": str(text).strip().rstrip("。.;；,，"), **info})
         cnt[key] += 1
+        by_batch[key][batch] += 1
         if club:
             clubs[key].add(club)
 
-    for s in students:
+    for batch, s in ((b, s) for b, ss in _batches(students).items() for s in ss):
         for b in s["blocks"]:
             club = b.get("clubCode") or ""
             ex = (b.get("ex") or {})
@@ -253,7 +262,7 @@ def known_roles(students):
     out = []
     for k, info in stat.items():
         info = dict(info)
-        row = {"原文": info.pop("_原文", k), **info, "次数": cnt[k], "学会": sorted(clubs[k])}
+        row = {"原文": info.pop("_原文", k), **info, "次数": cnt[k], "届别": dict(by_batch[k]), "学会": sorted(clubs[k])}
         out.append(row)
     out.sort(key=lambda r: (order.get(r["归类"], 9), r.get("依据", ""), -r["次数"], r["原文"]))
     return out
@@ -265,14 +274,16 @@ def write_known_xlsx(students, out, date_text=""):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     rows = known_roles(students)
+    batches = [b for b in _batches(students) if b]
     wb = Workbook()
     ws = wb.active
     ws.title = "职位一览"
-    head = ["原文", "归类", "写法", "依据", "同一条的其它职位", "备注", "次数", "学会"]
+    head = ["原文", "归类", "写法", "依据", "同一条的其它职位", "备注", "次数", *[f"{b}届" for b in batches], "学会"]
     ws.append(head)
     for r in rows:
         ws.append([r.get("原文"), r.get("归类"), r.get("写法", ""), r.get("依据", ""), r.get("同一条的其它职位", ""),
-                   r.get("备注", ""), r.get("次数"), "、".join(r.get("学会") or [])])
+                   r.get("备注", ""), r.get("次数"), *[r["届别"].get(b) or None for b in batches],
+                   "、".join(r.get("学会") or [])])
     fills = {"执委": "DCE9F9", "主席级": "C9DAF8", "中层管理": "FFF2CC", "会员": "EDEDED", "筹委": "D9EAD3", "不计": "F4CCCC"}
     for c in ws[1]:
         c.font = Font(bold=True)
@@ -282,8 +293,9 @@ def write_known_xlsx(students, out, date_text=""):
         if f:
             row[1].fill = PatternFill("solid", fgColor=f)
         row[0].alignment = row[2].alignment = Alignment(wrap_text=True, vertical="top")
-    for col, w in zip("ABCDEFGH", [46, 10, 40, 34, 22, 14, 7, 22]):
-        ws.column_dimensions[col].width = w
+    from openpyxl.utils import get_column_letter
+    for i, w in enumerate([46, 10, 40, 34, 22, 14, 7, *[8] * len(batches), 22], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     ws2 = wb.create_sheet("说明")
@@ -292,6 +304,7 @@ def write_known_xlsx(students, out, date_text=""):
         "已知职位一览（只供参考）",
         f"产生时间：{date_text}",
         "Result 里出现过的所有执委栏职位（包括原写在执委栏、被移到筹委的），以及系统目前把它算成什么。",
+        *(["Result 里有好几届（年份子文件夹）：「次数」是全部加起来，右边「XXXX届」是各届分别出现的次数。"] if batches else []),
         "改这份 Excel 不会改变计算；要改归类，请改 member_rules.json 的「一」到「四」，再重新产生这份清单。",
         "重新产生：网页右上角「下载职位一览」，或 python app.py --list-roles",
         "",

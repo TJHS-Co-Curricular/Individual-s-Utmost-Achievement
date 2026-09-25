@@ -94,6 +94,89 @@ class Hours(unittest.TestCase):
         self.assertEqual(rules.parse_hours("2小时35分钟+ 9小时50分钟"), 12.42)
 
 
+class Reference2025(unittest.TestCase):
+    """2026-09-25 用 Result/2025、Result/2026 两届资料补充的写法。"""
+
+    def test_template_heading(self):
+        self.assertEqual(rules.match_header("执委层/中层管理/联课处工委/会员："), ("role", ""))
+
+    def test_radicals(self):
+        from achievement.reader import fix_radicals
+        self.assertEqual(fix_radicals("后台授课⼈"), "后台授课人")
+
+    def test_not_positions(self):
+        R = member_rules.get()
+        for t in ("暂无", "考获Craft专章", "参与Citizenship专章课程及考试"):
+            self.assertTrue(R.exclusion(t, "role"), t)
+        self.assertIsNone(R.exclusion("正课程", "role"))
+
+    def test_grade_committees(self):
+        R = member_rules.get()
+        for t in ("高三编辑工委", "担任教师节工委副主席", "工委：教师节师生赛工委——总务", "毕业特刊编辑工委会--查账"):
+            self.assertTrue(R.exclusion(t, "role"), t)
+        self.assertIsNone(R.exclusion("编辑小组专题组组员", "role"))
+
+    def test_hours_move_to_comm(self):
+        R = member_rules.get()
+        self.assertTrue(R.moves_to_comm("园游会——场地（35小时）"))
+        self.assertFalse(R.moves_to_comm("联课处工委-52.5小时"))
+
+    def test_roles(self):
+        self.assertEqual(rules.classify_role("学长"), {"std": "会员"})
+        self.assertIn("mid", rules.classify_role("Harimau Rajawali 小队 队副"))
+        self.assertNotIn("std", rules.classify_role("担任循中+永平高中国际志工工委 - 主席"))
+        self.assertEqual(rules.classify_role("执委层，摄影及网站制作股"), {"other": "摄影及网站制作股"})
+        self.assertEqual(member_rules.get().special_label("2023/2024 联科处工委"), "联课处工委")
+
+    def test_awards(self):
+        A = award_rules.get()
+        for t in ("参与Pertandingan Memanah Tradisional Pelabuhan Klang --Johan", "- Naib Johan",
+                  "UCMAS National Competition -- 2nd runner up", "DANCE IN DIVERSITY 2024 —— CONSOLATION PRIZE",
+                  "ICAS数学比赛 - Credit", "《童行童善》- 机智奖", "CABARAN MEMANAH ALFA SIRI 3 --TEMPART KE-2"):
+            self.assertTrue(A.why(t), t)
+        for t in ("参与Kejohanan Memanah Tradisional Remaja", "PEARL ISLAND INVITATIONAL CHAMPIONSHIP 2025",
+                  "参加NATD OPEN DANCESPORT MEDALIST COMPETITION", "参加全国中小学生广告配音大赛(奖项未公布）",
+                  "参加The One Academy - Malaysia TOP 10 OUTSTANDING YOUNG ARTISTS AWARDS 2025"):
+            self.assertFalse(A.why(t), t)
+
+    def test_representing_club(self):
+        A = award_rules.get()
+        self.assertIsNone(A.comp_judge("4th MFA Taekwon-Do Invitational Championship 2024 ——Bronze", "D24"))
+        self.assertIsNone(A.comp_judge("2023年年终成果汇报之书面报告——团体特优奖", "C06"))
+        self.assertIn("时事常识", A.comp_judge("参与422地球日系列活动之常识比赛", "A01"))   # 「地球」不再当成球类
+        self.assertIn("学业成绩", A.comp_judge("2024年 第二学期 单科进步奖", "E03"))
+        self.assertIn("体育", A.comp_judge("参与Tactical Archery League Of Kuala Lumpur--Johan", "A01"))
+        self.assertNotIn("D12", A.comp_judge("- Naib Johan", "A01") or "")    # 「Naib」里的 ai 不再当成 AI
+
+
+class SupervisorReply20260925(unittest.TestCase):
+    """上级 2026-09-25 对 2025 / 2026 参考数据问题的回复。"""
+
+    def test_mid(self):
+        for t in ("第一小队副常委", "中层干部-体能关主", "步操口令员", "例常活动堂主-朱雀堂堂主"):
+            self.assertIn("mid", rules.classify_role(t), t)
+
+    def test_member(self):
+        for t in ("职衔Lans Koperal", "Sarjan（职衔）", "财政/查账培训", "执委服装培训人员", "实习学长"):
+            self.assertEqual(rules.classify_role(t), {"std": "会员"}, t)
+
+    def test_newsletter_editor(self):
+        R = member_rules.get()
+        for t in ("第114期校讯--主编", "校训学生主编（3个月）"):
+            self.assertTrue(R.exclusion(t, "role"), t)
+
+    def test_performers_to_comm(self):
+        R = member_rules.get()
+        for t in ("团内活动演员", "《寄憶》-演奏员", "武踪舞影《爻》-工委主席", "武踪舞影《爻》—《傣族》带领人"):
+            self.assertTrue(R.moves_to_comm(t), t)
+
+    def test_biology_science(self):
+        A = award_rules.get()
+        for t in ("参与K3M化学比赛", "参加2025厦门大学物理杯竞赛"):
+            self.assertIsNone(A.comp_judge(t, "D05"), t)
+        self.assertTrue(A.comp_judge("参与K3M化学比赛", "A01"))   # 其它学会照旧不计
+
+
 class WholeFolder(unittest.TestCase):
     """有 Result/ 文件夹时，确认整个文件夹都读得进来、算得出来。"""
 
@@ -101,8 +184,8 @@ class WholeFolder(unittest.TestCase):
         folder = ROOT / "Result"
         if not folder.is_dir():
             self.skipTest("没有 Result/ 文件夹")
-        from achievement.engine import load_folder
-        students, files, failed = load_folder(folder)
+        from achievement.engine import current_folder, load_folder
+        students, files, failed = load_folder(current_folder(folder))   # 只有年份子文件夹时读最新一届
         self.assertTrue(students)
         for s in students:
             st, _ = rules.compute_stats(s)

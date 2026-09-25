@@ -49,6 +49,10 @@ Individual's Utmost Achievement/
 
 运行时还会在项目根目录产生：`成就奖_手动调整.json`（网页里的「计入 / 不计」）、导出的离线版 HTML 和 Excel。
 
+**Result 里放年份子文件夹**（例：`Result/2025/`、`Result/2026/`）：网站读取最新一届（名称最大的那个文件夹）；
+「下载职位一览 / 获奖一览」（`--list-roles` / `--list-awards`）会读全部届别，每一届的出现次数另列一栏（`2025届`、`2026届`）。
+Result 里直接放履历表的话，照旧只读 Result 本身。
+
 打包后只需要 `Individual's Utmost Achievement Calculator.exe` 和 `Result/` 放在一起；`templates/`、`static/`、
 `config/` 已经封装在 exe 里面。要在 exe 版改规则：在 exe 旁边建一个 `config/` 文件夹，放入改好的
 `member_rules.json` / `award.json`，就会优先采用，不必重新打包。

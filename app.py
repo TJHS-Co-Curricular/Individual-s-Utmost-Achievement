@@ -38,7 +38,7 @@ for _s in (sys.stdout, sys.stderr):  # Windows 控制台编码不同时，避免
         _s.reconfigure(errors="replace")
     except Exception:  # noqa: BLE001
         pass
-from achievement.engine import folder_version, load_folder
+from achievement.engine import current_folder, folder_version, load_batches, load_folder
 from achievement.excel import write_xlsx
 
 # ---------------------------------------------------------------------------
@@ -107,10 +107,11 @@ class _State:
 
 def refresh(force=False) -> str:
     """文件夹有变动才重新整理（没改过的文件由 engine 的缓存直接取用）。"""
-    v = folder_version(BASE_DIR)
+    src = current_folder(BASE_DIR)          # Result 里只有年份子文件夹时，读最新一届
+    v = folder_version(src) + str(src)
     with _State.lock:
         if force or v != _State.version:
-            _State.students, _State.files, _State.failed = load_folder(BASE_DIR)
+            _State.students, _State.files, _State.failed = load_folder(src)
             _State.version = v
             _State.when = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if DEV_MODE:
@@ -120,7 +121,7 @@ def refresh(force=False) -> str:
 
 def info():
     return {"files": len(_State.files), "when": _State.when, "version": _State.version,
-            "fail": [list(x) for x in _State.failed], "folder": str(BASE_DIR)}
+            "fail": [list(x) for x in _State.failed], "folder": str(current_folder(BASE_DIR))}
 
 
 def load_ov() -> dict:
@@ -233,7 +234,7 @@ def export_roles():
     from achievement import member_rules
     refresh()
     buf = io.BytesIO()
-    member_rules.write_known_xlsx(_State.students, buf, datetime.now().strftime("%d-%m-%Y %H:%M"))
+    member_rules.write_known_xlsx(_ref_data(), buf, datetime.now().strftime("%d-%m-%Y %H:%M"))
     buf.seek(0)
     return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                      as_attachment=True, download_name="已知职位一览.xlsx")
@@ -245,7 +246,7 @@ def export_awards():
     from achievement import award_rules
     refresh()
     buf = io.BytesIO()
-    award_rules.write_known_xlsx(_State.students, buf, datetime.now().strftime("%d-%m-%Y %H:%M"))
+    award_rules.write_known_xlsx(_ref_data(), buf, datetime.now().strftime("%d-%m-%Y %H:%M"))
     buf.seek(0)
     return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                      as_attachment=True, download_name="已知获奖一览.xlsx")
@@ -289,6 +290,13 @@ def _find_free_port(preferred=5000, tries=20, host="127.0.0.1"):
             except OSError:
                 continue
     return 0
+
+
+def _ref_data():
+    """参考清单（职位一览 / 获奖一览）的资料：Result 里有好几届（年份子文件夹）就每届分开列出次数；
+    只有一批 → 照旧。"""
+    b = load_batches(BASE_DIR)
+    return b if len(b) > 1 else (next(iter(b.values())) if b else _State.students)
 
 
 def generated_dir() -> Path:
@@ -337,6 +345,8 @@ def main():
     for w in SETTINGS.warnings:
         print(f" [!] config.ini：{w}")
     print(f" 资料来源 (Result folder): {BASE_DIR}")
+    if current_folder(BASE_DIR) != BASE_DIR:
+        print(f"   Result 里是年份子文件夹 → 网站读取最新一届：{current_folder(BASE_DIR).name}")
     try:
         from achievement import member_rules
         print(f" 职位规则 (member rules): {member_rules.path()}")
@@ -352,7 +362,7 @@ def main():
         refresh(force=True)
         out_dir = generated_dir()
         p = out_dir / "已知获奖一览.xlsx"
-        n, summ = award_rules.write_known_xlsx(_State.students, p, datetime.now().strftime("%d-%m-%Y %H:%M"))
+        n, summ = award_rules.write_known_xlsx(_ref_data(), p, datetime.now().strftime("%d-%m-%Y %H:%M"))
         print(f" 已把 {n} 个比赛条目写进 {p}（获奖 {summ.get('★ 获奖', 0)}、未获奖 {summ.get('—', 0)}）")
         return
     if "--list-roles" in _argv_flags:
@@ -360,7 +370,7 @@ def main():
         refresh(force=True)
         out_dir = generated_dir()
         p = out_dir / "已知职位一览.xlsx"
-        n, summ = member_rules.write_known_xlsx(_State.students, p, datetime.now().strftime("%d-%m-%Y %H:%M"))
+        n, summ = member_rules.write_known_xlsx(_ref_data(), p, datetime.now().strftime("%d-%m-%Y %H:%M"))
         print(f" 已把 {n} 个职位写进 {p}（{'、'.join(f'{k} {v}' for k, v in summ.items())}）")
         return
     if "--export" in _argv_flags:

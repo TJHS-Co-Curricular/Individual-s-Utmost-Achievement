@@ -23,6 +23,30 @@ def list_files(folder: Path):
                   if p.is_file() and p.suffix.lower() in (".xlsx", ".pdf") and not p.name.startswith(("~$", ".")))
 
 
+def batch_folders(folder: Path) -> list[tuple[str, Path]]:
+    """Result 里的「届别」：直接放在 Result 的文件算一批（名称 ""），每个子文件夹（例：2025、2026）各算一届。"""
+    folder = Path(folder)
+    if not folder.is_dir():
+        return []
+    out = [("", folder)] if list_files(folder) else []
+    subs = [p for p in folder.iterdir() if p.is_dir() and not p.name.startswith((".", "~")) and list_files(p)]
+    return out + [(p.name, p) for p in sorted(subs, key=lambda p: p.name)]
+
+
+def current_folder(folder: Path) -> Path:
+    """网站要读的文件夹：Result 里直接有履历表 → 就是 Result；
+    只有年份子文件夹（例：2025、2026）→ 读最新的一届（名称最大的那个）。"""
+    b = batch_folders(folder)
+    if not b or b[0][0] == "":
+        return Path(folder)
+    return b[-1][1]
+
+
+def load_batches(folder: Path) -> dict:
+    """每一届分开读取（参考清单用）→ {届别: 学生清单}"""
+    return {name or "Result": load_folder(p)[0] for name, p in batch_folders(folder)}
+
+
 def folder_version(folder: Path) -> str:
     """文件夹内容指纹（文件名 + 修改时间 + 大小），任何增删改都会改变它。"""
     h = hashlib.md5()

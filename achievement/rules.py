@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 
 # ---------------------------------------------------------------- 类别
 CATS = [
-    ("role", "执委/职务", r"^(执委层/?中层管理/?联课处工委|执委层/?中层管理|执委层|职务|中层管理|执委)"),
+    ("role", "执委/职务", r"^(执委层/?中层管理/?联课处工委(/?会员)?|执委层/?中层管理|执委层|职务|中层管理|执委)"),
     ("comm", "筹委", r"^(筹委)"),
     ("extComp", "校外比赛", r"^(参与校外比赛(及|与)奖项|参与校外比赛|校外比赛(及|与)奖项|校外比赛|曾参与社团比赛)"),
     ("intComp", "校内比赛", r"^(参与校内比赛(及|与)奖项|参与校内比赛|校内比赛(及|与)奖项|校内比赛|校内奖项)"),
@@ -306,7 +306,7 @@ def clean_role(t, club_name):
             p = p.replace(club, "")
         p = re.sub(r"执委层|中层管理|中层干部", "", p).replace("执委", "")
         p = re.sub(r"^[A-E]\d{2}", "", p)
-        p = re.sub(r"^(的|之)", "", p).strip()
+        p = re.sub(r"^(的|之)", "", p).strip().lstrip("，,、;；。.")
         if p and not re.fullmatch(r".{0,8}(学会|团|队|社)", p) and not re.fullmatch(r"[\d.、]+", p):
             parts.append(p)
     return "·".join(parts).strip("·")
@@ -353,7 +353,7 @@ def _classify_mid(t, club_name, R):
     return out
 
 
-_CTX_DROP = re.compile(r"^[（(]\d+[）)]|学会|执委")
+_CTX_DROP = re.compile(r"^[（(]\d+[）)]|学会|执委|^第[一二三四五]$|【[^】]*】")
 
 
 def _with_context(std, words, t, club_name):

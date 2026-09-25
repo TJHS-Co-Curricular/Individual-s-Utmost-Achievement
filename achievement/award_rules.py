@@ -14,7 +14,7 @@ import re
 from .member_rules import _norm, find_file
 
 FILE_NAME = "award.json"
-_PART_SPLIT = re.compile(r"——|--|—|–|－|：|:|\s-\s|(?<=\S)-(?=\S*奖)")
+_PART_SPLIT = re.compile(r"——|--|—|–|－|：|:|\s-\s|(?<=\S)-(?=\S*奖)|-\s+(?=\S*奖)")
 
 
 def path():
@@ -36,6 +36,7 @@ class AwardRules:
         self.club_kw = {code: comp(v) for code, v in (f.get("各学会关键词") or {}).items()}
         self.club_name = {code: v.get("名称", "") for code, v in (f.get("各学会关键词") or {}).items()}
         self.other_kw = {name: comp(v) for name, v in (f.get("其它类别关键词") or {}).items()}
+        self.all_kw = comp(f.get("所有学会都算") or {})
 
     @staticmethod
     def _hit(kw, text):
@@ -50,7 +51,7 @@ class AwardRules:
 
     def comp_judge(self, text, code):
         """比赛是否代表本学会：None=计入；"unsure"=待确认；其它字串=不计原因"""
-        if self.own(code, text):
+        if self.own(code, text) or self._hit(self.all_kw, text):
             return None
         for lab, kw in self.other_kw.items():
             if self._hit(kw, text):
@@ -123,9 +124,11 @@ def write_known_xlsx(students, out, date_text=""):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from . import rules as RL
+    from .member_rules import _batches
     A = get()
-    stat, cnt, clubs = {}, Counter(), defaultdict(set)
-    for s in students:
+    stat, cnt, clubs, by_batch = {}, Counter(), defaultdict(set), defaultdict(Counter)
+    batches = [b for b in _batches(students) if b]
+    for batch, s in ((bn, s) for bn, ss in _batches(students).items() for s in ss):
         for b in s["blocks"]:
             for k, lab in (("extComp", "校外比赛"), ("intComp", "校内比赛")):
                 for i, t in enumerate(b["cats"].get(k, [])):
@@ -137,15 +140,17 @@ def write_known_xlsx(students, out, date_text=""):
                         e = b.get("exBlock") or (b.get("ex", {}).get(k) or [None] * (i + 1))[i]
                         stat[key] = {"原文": str(t).strip(), "类别": lab, "获奖": "★ 获奖" if w else "—", "依据": w or "", "计入": "不计：" + e if e else "计入"}
                     cnt[key] += 1
+                    by_batch[key][batch] += 1
                     if b.get("clubCode"):
                         clubs[key].add(b["clubCode"])
     rows = sorted(stat.items(), key=lambda kv: (kv[1]["获奖"] != "★ 获奖", kv[1]["依据"], -cnt[kv[0]], kv[0]))
     wb = Workbook()
     ws = wb.active
     ws.title = "获奖一览"
-    ws.append(["原文", "类别", "获奖", "依据", "这条是否计入", "次数", "学会"])
+    ws.append(["原文", "类别", "获奖", "依据", "这条是否计入", "次数", *[f"{b}届" for b in batches], "学会"])
     for k, v in rows:
-        ws.append([v["原文"], v["类别"], v["获奖"], v["依据"], v["计入"], cnt[k], "、".join(sorted(clubs[k]))])
+        ws.append([v["原文"], v["类别"], v["获奖"], v["依据"], v["计入"], cnt[k],
+                   *[by_batch[k].get(b) or None for b in batches], "、".join(sorted(clubs[k]))])
     for c in ws[1]:
         c.font = Font(bold=True)
         c.fill = PatternFill("solid", fgColor="BDD7EE")
@@ -157,8 +162,9 @@ def write_known_xlsx(students, out, date_text=""):
         if str(row[4].value).startswith("不计"):
             for c in row:
                 c.font = grey
-    for col, w in zip("ABCDEFG", [60, 9, 9, 22, 30, 7, 18]):
-        ws.column_dimensions[col].width = w
+    from openpyxl.utils import get_column_letter
+    for i, w in enumerate([60, 9, 9, 22, 30, 7, *[8] * len(batches), 18], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     summary = Counter(v["获奖"] for _, v in rows)
