@@ -1,9 +1,31 @@
+# 学生资料（个人资料，不上传）
 Result/
+成就奖_手动调整.json
+
+# 导出 / 自动产生的文件
+成就奖履历总览*.html
+成就奖统计.xlsx
+docs/generated/
+
+# 打包
+Individual's Utmost Achievement Calculator.exe
 .buildenv/
 .buildwork/
+build/
+dist/
+*.spec
+
+# Python
 __pycache__/
 *.pyc
-Individual's Utmost Achievement Calculator.exe
-成就奖履历总览.html
-成就奖统计.xlsx
-成就奖_手动调整.json
+.venv/
+venv/
+
+# 系统 / Office 暂存档
+~$*
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 其它
+Claude outputs/

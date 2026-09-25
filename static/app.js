@@ -17,7 +17,7 @@ let OV=Object.assign({},window.EMBED_OV||{});if(!window.LIVE){try{Object.assign(
 let OVV=0;const SC=new Map();
 let ovTimer=null;
 function saveOV(){OVV++;SC.clear();
-  if(window.LIVE){clearTimeout(ovTimer);ovTimer=setTimeout(()=>fetch('api/overrides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(OV)}).then(r=>r.ok?toast('手动调整已保存到文件夹'):toast('保存失败',1)).catch(()=>toast('工具已关闭，调整没有保存',1)),400);return}
+  if(window.LIVE){clearTimeout(ovTimer);ovTimer=setTimeout(()=>fetch('api/overrides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(OV)}).then(async r=>{if(r.ok)return toast('手动调整已保存到文件夹');let m='保存失败';try{m=(await r.json()).error||m}catch(_){ }toast(m,1)}).catch(()=>toast('工具已关闭，调整没有保存',1)),400);return}
   try{localStorage.setItem('ov-v1',JSON.stringify(OV))}catch(e){}}
 function statsFor(s,year){
   const k=(s.sid||s.file)+'|'+(year||'');let r=SC.get(k);
@@ -105,21 +105,29 @@ function yearGroups(s){const g=[];for(const b of s.blocks){let x=g.find(y=>y.yea
 const spBadge=s=>(s.special||[]).map(x=>`<span class="sp" title="特别标记">★ ${esc(x)}</span>`).join('');
 function simpleView(s){
   const groups=yearGroups(s);const tot=statsFor(s,'');
-  let h=`<div class="simple-wrap"><table class="simple"><thead><tr><th>年份</th><th>班级</th><th>学会</th><th>执委</th><th>中层管理</th><th class="num">筹委<br><span>数量</span></th><th class="num">服务<br><span>小时</span></th><th class="num">活动<br><span>数量</span></th><th class="num">工作<br><span>数量</span></th><th class="num">比赛<br><span>数量（获奖）</span></th></tr></thead><tbody>`;
+  const MAXP=6;   // 执委 / 中层管理超过这么多个就先收起，点「+N 更多」展开
+  const pills=(arr,cls,label)=>{if(!arr.length)return '';const more=arr.length-MAXP;
+    return `<div class="rl"><span class="rl-k">${label}</span><span class="rl-v">${arr.map((x,i)=>`<span class="pill ${cls}${i>=MAXP?' more':''}">${esc(x)}</span>`).join('')}${more>0?`<button class="morebtn" type="button">+${more} 更多</button>`:''}</span></div>`};
+  let h=`<div class="simple-wrap"><table class="simple"><thead><tr><th>年份</th><th>班级 / 学会</th><th class="num">职务<br><span>数量</span></th><th class="num">中层管理<br><span>数量</span></th><th class="num">筹委<br><span>数量</span></th><th class="num">服务<br><span>小时</span></th><th class="num">活动<br><span>数量</span></th><th class="num">工作<br><span>数量</span></th><th class="num">比赛<br><span>数量（获奖）</span></th></tr></thead>`;
   for(const g of groups){
     const st=C.computeStats(Object.assign({},s,{blocks:g.blocks}),OV,null);
     const multi=g.blocks.length>1;
-    const roles=g.blocks.map(b=>{const l=st.roleByBlock.get(b)||[];const sp=[...new Set(Object.values(b.sp||{}).flat().filter(Boolean))].map(x=>`<span class="sp">★ ${esc(x)}</span>`).join('');if(b.exBlock||(!l.length&&!sp))return '';return (multi?`<span class="muted">${esc(b.clubName)}：</span>`:'')+l.map(esc).join('、')+sp}).filter(Boolean).join('<br>')||'<span class="zero">—</span>';
-    const mids=g.blocks.map(b=>{const l=st.midByBlock.get(b)||[];if(b.exBlock||!l.length)return '';return (multi?`<span class="muted">${esc(b.clubName)}：</span>`:'')+l.map(esc).join('、')}).filter(Boolean).join('<br>')||'<span class="zero">—</span>';
     const clubs=g.blocks.map(b=>`${esc((b.clubCode?b.clubCode+' ':'')+b.clubName)}${b.exBlock?' <span class="tag ex">B类不计</span>':''}`).join('<br>');
     const cls=[...new Set(g.blocks.map(b=>b.cls).filter(Boolean))].join(' / ');
     const n=v=>v?v:'<span class="zero">0</span>';
     const comp=st.extComp+st.intComp;
-    h+=`<tr data-year="${g.year??''}" title="点击查看这一年的详细内容"><td class="y">${g.year||'年份不明'}</td><td>${esc(cls)}</td><td>${clubs}</td><td class="roles">${roles}</td><td class="roles">${mids}</td><td class="num">${n(st.comm)}</td><td class="num">${st.hours?fmt(st.hours):'<span class="zero">0</span>'}</td><td class="num">${n(st.extAct+st.intAct)}</td><td class="num">${n(st.team)}</td><td class="num">${comp?comp+(st.awards?` <span class="aw">（${st.awards}★）</span>`:''):'<span class="zero">0</span>'}</td></tr>`;
+    const detail=g.blocks.map(b=>{
+      if(b.exBlock)return '';
+      const l=st.roleByBlock.get(b)||[],m=st.midByBlock.get(b)||[];
+      const sp=[...new Set(Object.values(b.sp||{}).flat().filter(Boolean))].map(x=>`<span class="sp">★ ${esc(x)}</span>`).join('');
+      if(!l.length&&!m.length&&!sp)return '';
+      return `<div class="rblock">${multi?`<div class="rclub">${esc(b.clubName)}</div>`:''}${pills(l,'role','执委')}${sp?`<div class="rl"><span class="rl-k">标记</span><span class="rl-v">${sp}</span></div>`:''}${pills(m,'mid','中层管理')}</div>`;
+    }).filter(Boolean).join('');
+    h+=`<tbody class="yr" data-year="${g.year??''}" title="点击查看这一年的详细内容"><tr class="nums"><td class="y">${g.year||'年份不明'}</td><td class="cc"><div>${esc(cls)||'<span class="zero">—</span>'}</div><div class="muted">${clubs}</div></td><td class="num">${n(st.roles)}</td><td class="num">${n(st.mid)}</td><td class="num">${n(st.comm)}</td><td class="num">${st.hours?fmt(st.hours):'<span class="zero">0</span>'}</td><td class="num">${n(st.extAct+st.intAct)}</td><td class="num">${n(st.team)}</td><td class="num">${comp?comp+(st.awards?` <span class="aw">（${st.awards}★）</span>`:''):'<span class="zero">0</span>'}</td></tr>${detail?`<tr class="roles-row"><td></td><td colspan="8">${detail}</td></tr>`:''}</tbody>`;
   }
   const tc=tot.extComp+tot.intComp;
-  h+=`</tbody><tfoot><tr><td>合计</td><td></td><td></td><td>职务 ${tot.roles} 个<span class="muted">（不含会员）</span></td><td>中层管理 ${tot.mid} 个</td><td class="num">${tot.comm}</td><td class="num">${fmt(tot.hours)}</td><td class="num">${tot.extAct+tot.intAct}</td><td class="num">${tot.team}</td><td class="num">${tc}${tot.awards?` <span class="aw">（${tot.awards}★）</span>`:''}</td></tr></tfoot></table></div>`;
-  h+=`<p class="muted" style="font-size:12px;margin-top:8px">只计入符合规则的条目（不计入的在「详细」里以灰色划线显示）。活动＝校内外活动，工作＝团内工作/表演，比赛＝校内外比赛。点任一年可跳到「详细」。</p>`;
+  h+=`<tfoot><tr><td>合计</td><td><span class="muted">职务不含会员</span></td><td class="num">${tot.roles}</td><td class="num">${tot.mid}</td><td class="num">${tot.comm}</td><td class="num">${fmt(tot.hours)}</td><td class="num">${tot.extAct+tot.intAct}</td><td class="num">${tot.team}</td><td class="num">${tc}${tot.awards?` <span class="aw">（${tot.awards}★）</span>`:''}</td></tr></tfoot></table></div>`;
+  h+=`<p class="muted" style="font-size:12px;margin-top:8px">只计入符合规则的条目（不计入的在「详细」里以灰色划线显示）。活动＝校内外活动，工作＝团内工作/表演，比赛＝校内外比赛。点任一年可跳到「详细」。可以拖动窗口左边缘调整宽度。</p>`;
   return h;
 }
 function openDrawer(s,jumpYear){
@@ -149,7 +157,7 @@ function openDrawer(s,jumpYear){
         const btn=b.exBlock?'':`<button class="tg" data-b="${s.blocks.indexOf(b)}" data-k="${c.key}" data-i="${i}">${x.inc?'不计':'计入'}</button>`;
         return `<li class="${x.inc?'':'ex'} ${spl?'spi':''} ${x.inc&&isComp&&C.isAward(it)?'aw':''}"><span class="it">${hi(it)}</span>${tags}${btn}</li>`}).join('');
       const nInc=b.cats[c.key].filter((it,i)=>C.itemState(s,b,c.key,i,OV).inc).length;
-      if(c.key==='role'){const std=st.roleByBlock.get(b)||[],mid=st.midByBlock.get(b)||[];h+=`<div class="cat"><div class="cl">执委/职务 · ${nInc}</div><div><div class="stdrole">${std.map(x=>`<span class="pill">${esc(x)}</span>`).join('')||(mid.length?'':'<span class="muted">—</span>')}${mid.map(x=>`<span class="pill mid" title="中层管理（助理/授课人/队长/监督/督导/顾问类），另计「中层管理」">中层管理·${esc(x)}</span>`).join('')}</div><div class="orig">原文：<ol>${lis}</ol></div></div></div>`;continue}
+      if(c.key==='role'){const std=st.roleByBlock.get(b)||[],mid=st.midByBlock.get(b)||[];h+=`<div class="cat"><div class="cl">执委/职务 · ${nInc}</div><div><div class="stdrole">${std.map(x=>`<span class="pill">${esc(x)}</span>`).join('')||(mid.length?'':'<span class="muted">—</span>')}${mid.map(x=>`<span class="pill mid" title="中层管理（助理/授课人/队长/监督/督导/顾问类），另计「中层管理」">中层管理：${esc(x)}</span>`).join('')}</div><div class="orig">原文：<ol>${lis}</ol></div></div></div>`;continue}
       h+=`<div class="cat"><div class="cl">${c.label} · ${nInc}${nInc!==b.cats[c.key].length?`<span class="muted">/${b.cats[c.key].length}</span>`:''}</div><ol>${lis}</ol></div>`;
     }
     h+='</div></div>';
@@ -161,7 +169,8 @@ function openDrawer(s,jumpYear){
   if(jumpYear!=null){const el=$(`#dbody .year[data-year="${jumpYear}"]`);if(el){const sg=$('#dbody .seg');$('#dbody').scrollTop=el.getBoundingClientRect().top-$('#dbody').getBoundingClientRect().top+$('#dbody').scrollTop-(sg?sg.offsetHeight+16:8)}}
   $('#dbody').onclick=e=>{
     const sg=e.target.closest('.seg button');if(sg){DMODE=sg.dataset.m;try{localStorage.setItem('drawerMode',DMODE)}catch(_){ }CUR_ID=null;openDrawer(s);return}
-    const yr=e.target.closest('table.simple tbody tr');if(yr){DMODE='detail';try{localStorage.setItem('drawerMode',DMODE)}catch(_){ }CUR_ID=null;openDrawer(s,yr.dataset.year);return}
+    const mb=e.target.closest('.morebtn');if(mb){const v=mb.closest('.rl-v');v.classList.toggle('open');mb.textContent=v.classList.contains('open')?'收起':`+${v.querySelectorAll('.pill.more').length} 更多`;return}
+    const yr=e.target.closest('table.simple tbody.yr');if(yr){DMODE='detail';try{localStorage.setItem('drawerMode',DMODE)}catch(_){ }CUR_ID=null;openDrawer(s,yr.dataset.year);return}
     const bt=e.target.closest('.tg');if(!bt)return;const b=s.blocks[+bt.dataset.b],k=bt.dataset.k,i=+bt.dataset.i;const key=C.itemKey(s,b,k,b.cats[k][i],i);const x=C.itemState(s,b,k,i,OV);
     const want=x.inc?'out':'in';const autoInc=!x.auto; if((want==='in')===autoInc) delete OV[key]; else OV[key]=want; saveOV();openDrawer(s);renderInfo();renderTable();};
   $('#drawer').classList.add('on');$('#scrim').classList.add('on');$('#drawer').setAttribute('aria-hidden','false');
@@ -177,7 +186,7 @@ function openCompare(){
   let h=`<div class="card" style="overflow:auto"><table class="cmptable"><thead><tr><th></th>${ss.map(s=>`<th><a href="#" data-open="${esc(s.sid||s.file)}">${esc(s.cn)}</a><div class="muted" style="font-weight:400">${esc(s.code)} ${esc(s.club)} · ${esc(s.cls)}</div></th>`).join('')}</tr></thead><tbody>`;
   for(const [t,k] of rows){const vs=ss.map(s=>statsFor(s,'')[k]||0);const mx=Math.max(...vs);h+=`<tr><th style="background:none">${t}</th>${vs.map(v=>`<td class="num ${v===mx&&mx>0?'best':''}">${fmt(v)}</td>`).join('')}</tr>`}
   h+=`<tr><th style="background:none">职务（历年）</th>${ss.map(s=>`<td style="font-size:12px">${[...statsFor(s,'').roleByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>`<div>${b.year}：${esc(l.join('、'))}</div>`).join('')||'—'}</td>`).join('')}</tr>`;
-  h+=`<tr><th style="background:none">中层管理（历年）</th>${ss.map(s=>`<td style="font-size:12px">${[...statsFor(s,'').midByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>`<div>${b.year}：${esc(l.join('、'))}</div>`).join('')||'—'}</td>`).join('')}</tr>`;
+  h+=`<tr><th style="background:none">中层管理（历年）</th>${ss.map(s=>`<td style="font-size:12px">${[...statsFor(s,'').midByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>l.map(x=>`<div>${b.year} 中层管理：${esc(x)}</div>`).join('')).join('')||'—'}</td>`).join('')}</tr>`;
   h+=`<tr><th style="background:none">获奖</th>${ss.map(s=>`<td style="font-size:12px">${s.blocks.flatMap(b=>['extComp','intComp'].flatMap(k=>(b.cats[k]||[]).filter((r,i)=>C.itemState(s,b,k,i,OV).inc&&C.isAward(r))).map(r=>`<div>${b.year}：${esc(r)}</div>`)).join('')||'—'}</td>`).join('')}</tr>`;
   h+='</tbody></table></div>';
   $('#dbody').innerHTML=h;
@@ -242,43 +251,75 @@ $('#ovimp').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const 
 $('#csv').onclick=()=>{
   const list=filtered();
   const head=['学会代号','学会','学号','姓名','英文名','班级','年数','职务（规范写法，历年）','职务数','中层管理（历年）','中层管理数','筹委','校外比赛','校内比赛','获奖','校外活动','校内活动','团内工作','校外服务项','校内服务项','服务时数','待确认条目','特别标记','问题','文件'];
-  const lines=[head].concat(list.map(s=>{const st=statsFor(s,state.year);return[s.code,s.club,s.sid,s.cn,s.en,s.cls,new Set(s.years).size,[...st.roleByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>b.year+'：'+l.join('、')).join('；'),st.roles,[...st.midByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>b.year+'：'+l.join('、')).join('；'),st.mid,st.comm,st.extComp,st.intComp,st.awards,st.extAct,st.intAct,st.team,st.extSvc,st.intSvc,st.hours,st.unsure,(s.special||[]).join('、'),s.issues.join('；'),s.file]}));
+  const lines=[head].concat(list.map(s=>{const st=statsFor(s,state.year);return[s.code,s.club,s.sid,s.cn,s.en,s.cls,new Set(s.years).size,[...st.roleByBlock.entries()].filter(([b,l])=>l.length).map(([b,l])=>b.year+'：'+l.join('、')).join('；'),st.roles,[...st.midByBlock.entries()].filter(([b,l])=>l.length).flatMap(([b,l])=>l.map(x=>b.year+' 中层管理：'+x)).join('\n'),st.mid,st.comm,st.extComp,st.intComp,st.awards,st.extAct,st.intAct,st.team,st.extSvc,st.intSvc,st.hours,st.unsure,(s.special||[]).join('、'),s.issues.join('；'),s.file]}));
   const csv='﻿'+lines.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='成就奖统计'+(state.year?'_'+state.year:'')+'.csv';a.click();
 };
 
 function renderInfo(){
   const base=`${ALL.length} 位学生 · 读取 ${INFO.files} 个文件 · ${window.LIVE?'载入于':'生成于'} ${INFO.when}${INFO.fail&&INFO.fail.length?' · '+INFO.fail.length+' 个文件读取失败（见资料问题）':''}${Object.keys(OV).length?' · 手动调整 '+Object.keys(OV).length+' 项':''}`;
-  $('#srcinfo').innerHTML=window.LIVE?`<span class="dot ${LIVE_OK?'':'off'}"></span>${LIVE_OK?'自动载入中':'工具已关闭，资料不再自动更新'} · ${esc(base)}`:esc(base+'　（按 / 快速搜索）');
+  $('#srcinfo').innerHTML=window.LIVE?`<span class="dot ${LIVE_OK?'':'off'}"></span>${LIVE_OK?'自动载入中':esc(LAST_ERR||OFFLINE_TIP)+'（会自动重试）'} · ${esc(base)}`:esc(base+'　（按 / 快速搜索）');
 }
 function init(){C.index(ALL);ALL.forEach(s=>delete s._hay);SC.clear();fillFilters();renderInfo();renderIssues();renderTable();if(!$('#tab-stats').classList.contains('hidden'))renderStats()}
 let LIVE_OK=true,VER=INFO.version||null,tt=null;
 function toast(msg,err){const el=$('#toast');el.textContent=msg;el.classList.toggle('err',!!err);el.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>el.classList.remove('on'),2500)}
+let FAILS=0,LAST_ERR='';
+const OFFLINE_TIP='连接不上本地程序（黑色窗口是不是关掉了，或电脑刚睡眠过？）';
+async function getJSON(url){
+  const r=await fetch(url,{cache:'no-store'});
+  if(!r.ok)throw new Error(`服务器回应 ${r.status}`);
+  return r.json();
+}
 async function poll(){
   try{
-    const v=(await (await fetch('api/version',{cache:'no-store'})).json()).version;
+    const r=await getJSON('api/version');
+    if(r.error){LAST_ERR=r.error;if(LIVE_OK){LIVE_OK=false}renderInfo();return}
+    const reconnect=!LIVE_OK||FAILS>0;FAILS=0;LAST_ERR='';
     if(!LIVE_OK){LIVE_OK=true;renderInfo()}
-    if(v&&v!==VER){
-      const d=await (await fetch('api/data',{cache:'no-store'})).json();
+    if(r.version&&(r.version!==VER||reconnect)){
+      const d=await getJSON('api/data');
+      if(d.error)throw new Error(d.error);
       const open=$('#drawer').classList.contains('on')&&CUR_ID;
+      const changed=d.version!==VER;
       ALL=d.students;INFO=d.info;VER=d.version;OV=Object.assign({},d.overrides||{});
-      init();toast(`已自动载入最新资料：${INFO.files} 个文件 · ${ALL.length} 位学生`);
+      init();if(changed)toast(`已自动载入最新资料：${INFO.files} 个文件 · ${ALL.length} 位学生`);
       if(open){const s=ALL.find(x=>(x.sid||x.file)===open);if(s)openDrawer(s)}
     }
-  }catch(e){if(LIVE_OK){LIVE_OK=false;renderInfo()}}
+  }catch(e){FAILS++;LAST_ERR=e.message==='Failed to fetch'?OFFLINE_TIP:e.message;if(LIVE_OK){LIVE_OK=false}renderInfo()}
 }
 async function boot(){
   if(window.LIVE){
     document.body.classList.add('live');
     $('#srcinfo').textContent='正在读取 Result 文件夹…';
-    try{
-      const d=await (await fetch('api/data',{cache:'no-store'})).json();
-      if(d.error)throw new Error(d.error);
-      ALL=d.students;INFO=d.info;VER=d.version;OV=Object.assign({},d.overrides||{});
-    }catch(e){$('#srcinfo').textContent='读取失败：'+e.message;return}
+    for(let n=1;;n++){   // 第一次读取失败会自动重试，不必手动刷新
+      try{
+        const d=await getJSON('api/data');
+        if(d.error)throw new Error(d.error);
+        ALL=d.students;INFO=d.info;VER=d.version;OV=Object.assign({},d.overrides||{});
+        break;
+      }catch(e){
+        const msg=e.message==='Failed to fetch'?OFFLINE_TIP:e.message;
+        const wait=Math.min(10,n*2);
+        $('#srcinfo').innerHTML=`<span class="dot off"></span>读取失败：${esc(msg)} · ${wait} 秒后自动重试（第 ${n} 次）`;
+        await new Promise(r=>setTimeout(r,wait*1000));
+      }
+    }
     setInterval(poll,3000);
   }
   init();
 }
 boot();
+})();
+
+// ----- 个人页窗口：拖动左边缘调整宽度（记在这台电脑的浏览器里）
+(function(){
+  const d=document.getElementById('drawer');if(!d)return;
+  const hdl=document.createElement('div');hdl.className='dresize';hdl.title='拖动调整宽度（双击恢复默认）';d.appendChild(hdl);
+  const setW=w=>{if(w){d.style.setProperty('--dw',Math.max(480,Math.min(window.innerWidth,w))+'px')}else d.style.removeProperty('--dw')};
+  try{const w=+localStorage.getItem('drawerW');if(w)setW(w)}catch(e){}
+  let x0=0,w0=0,drag=false;
+  hdl.addEventListener('mousedown',e=>{drag=true;x0=e.clientX;w0=d.getBoundingClientRect().width;document.body.classList.add('resizing');e.preventDefault()});
+  window.addEventListener('mousemove',e=>{if(drag)setW(w0+(x0-e.clientX))});
+  window.addEventListener('mouseup',()=>{if(!drag)return;drag=false;document.body.classList.remove('resizing');try{localStorage.setItem('drawerW',Math.round(d.getBoundingClientRect().width))}catch(e){}});
+  hdl.addEventListener('dblclick',()=>{setW(0);try{localStorage.removeItem('drawerW')}catch(e){}});
 })();

@@ -32,10 +32,7 @@ CATS_RE = [(k, lab, re.compile(rx)) for k, lab, rx in CATS]
 CAT_LABEL = {k: lab for k, lab, _ in CATS}
 CAT_LABEL["other"] = "其他（未注明类别）"
 
-AWARD_RE = re.compile(
-    r"(冠军|亚军|季军|殿军|金奖|银奖|铜奖|金牌|银牌|铜牌|优秀奖|佳作|优胜|优等|特优|甲等|乙等|一等|二等|三等|荣誉奖|鼓励奖|入围|"
-    r"第[一二三四五六七八九十\d]+名|前[一二三四五六七八九十\d]+名|最佳|Gold|Silver|Bronze|Champion|Merit|Distinction|金榜|金质|银质|铜质|"
-    r"安慰奖|Hadiah|[甲乙丙][上中]|表现优异)", re.I)
+# 获奖的判断规则在 config/award.json
 EMPTY_RE = re.compile(r"^[\s\-—－–_/无nN/A.。、:：]*$")
 _WS = re.compile(r"[\s 　​-‏⁠-⁯﻿]+")
 
@@ -69,16 +66,18 @@ _HOURS_DENOM = re.compile(r"/\s*\d+(?:\.\d+)?\s*(?:小时|分钟|mins?\b|M\b|hou
 
 
 def parse_hours(s):
-    total, found = 0.0, False
+    vals = []
     for m in _HOURS_RE.finditer(_HOURS_DENOM.sub("", str(s))):
-        found = True
         if m.group(1):
-            total += float(m.group(1))
-            if m.group(3):
-                total += float(m.group(3)) / 60
+            vals.append(float(m.group(1)) + (float(m.group(3)) / 60 if m.group(3) else 0))
         elif m.group(4):
-            total += float(m.group(4)) / 60
-    return round(total, 2) if found else None
+            vals.append(float(m.group(4)) / 60)
+    if not vals:
+        return None
+    # 「11h，筹备6h，活动5h」：第一个是总数、后面是细分（加起来刚好等于总数）→ 只算总数
+    if len(vals) > 2 and abs(vals[0] - sum(vals[1:])) < 0.02:
+        return round(vals[0], 2)
+    return round(sum(vals), 2)
 
 
 def year_of(v):
@@ -262,17 +261,24 @@ def parse_filename(fn: str) -> dict:
 
 
 # ---------------------------------------------------------------- 执委/职务标准化（手册）
-# 标准职称：主席/秘书/事务/财政（正/副）、查账、总学长（正/副）、助理总学长、执委、会员、队长、副队长
-# 其它职位 → 执委(XXX,XXX)；主席等没写正/副 → 当作正（上级 2026-09-24 定：做法 A）
-# 童军等「分团」职位（如 狮子分团--秘书）→ 一律标「执委」（上级 2026-09-24）
-NOT_TITLE = re.compile(r"助理(?!总学长)|培训|监督|督导|顾问|候选|实习|筹委|筹主|《|活动|比赛|营|欢送会|汇报|晚会|庆典|公演|聚会|毕联会|毕业班联合会|工委会|班级|委员|小组")
+# 「什么职位算什么」全部写在 config/member_rules.json（四、职位归类），这里只负责照表执行。
+# 下面只保留文字处理的细节：判断正/副、去掉年份和学会名、把一条拆成几个职位等。
+from . import member_rules as MR
+
 _P = r"(?:^|(?<=[正副委会团队社·—\-：:（(]))"
-TITLES = [
-    ("主席", re.compile(_P + r"主席(?![股团])"), "主席"),
-    ("秘书", re.compile(_P + r"秘书(?!股|小组|组)"), "秘书"),
-    ("事务", re.compile(_P + r"事[务物](?!股)"), "事[务物]"),
-    ("财政", re.compile(_P + r"财政(?!股|小组|组)"), "财政"),
-]
+# 标准职称的细节写法（名称来自 member_rules.json 的「标准职称」；这里补上「不要误认成 XX股 / XX小组」的细节）
+# 标准职称后面不能接的字（避免把「秘书股」「主席团」当成职称）
+_TITLE_AFTER = {"主席": r"(?![股团])", "秘书": r"(?!股|小组|组)", "事务": r"(?!股)", "财政": r"(?!股|小组|组)", "总学长": "", "查账": r"(?!股)"}
+_TITLE_NOPREFIX = {"总学长", "查账"}   # 这两个前面接什么字都算
+
+
+def _title_rx(name, R=None):
+    """标准职称的比对方式；「同等写法」（member_rules.json）里的写法也算同一个职称，例：事物、总务 = 事务"""
+    alts = (R.title_alias.get(name) if R else None) or [name]
+    words = "(?:" + "|".join(map(re.escape, alts)) + ")"
+    after = _TITLE_AFTER.get(name, r"(?!股)")
+    pre = "" if name in _TITLE_NOPREFIX else _P
+    return re.compile(pre + words + after), words
 
 
 def _side(t, title):
@@ -306,45 +312,37 @@ def clean_role(t, club_name):
     return "·".join(parts).strip("·")
 
 
-def _fentuan_label(t):
-    """童军分团职位的显示名：狮子分团--秘书 → 狮子分团秘书；老虎分团——分团秘书 → 老虎分团秘书"""
-    x = re.sub(r"^担任", "", t)
-    x = re.sub(r"\d{2,4}/\d{2,4}(年度|届|年)?|20\d\d(年度|年|届)?", "", x)
-    x = re.sub(r"——|--|—|－|–|-|：|:|\s", "", x)
-    return re.sub(r"分团分团", "分团", x)
-
-
-# 中层管理：助理类、授课人类、队长类、监督/督导/顾问/教练/领队类、首席/组长/领养人类、家族职位、联课组别、校内服务负责人（上级 2026-09-24）
-MID_RE = re.compile(r"助理(?!总学长)|助教|授课人|小教练|教官|副教(?!练)|队长|监督|督导|顾问|(?<!小)教练|领队|首席|组长|领养人|家族|组别|校内服务负责人")
 MID_SPLIT = re.compile(r"[+＋、，,/]|兼")
 
 
-def _mid_label(p):
+def _mid_label(p, R):
     p = re.sub(r"^会员[（(](.*)[）)]$", r"\1", p.strip())
     m = re.search(r"(总|正|副|小|中|分)?队长", p)
-    if m and not re.search(r"助理|助教|授课人|小教练|教官|副教|监督|督导|顾问|教练|领队|首席|组长|领养人|家族|组别|校内服务负责人", p):
+    if m and not any(w in p.lower() for w in R.mid_words if w not in R.captain_words):
         return m.group(0).replace("正队长", "队长")
     return p
 
 
-def _classify_mid(t, club_name):
-    """含中层职位的一条：拆出中层部分；同一条里的其它职位照原规则分类。"""
+def _classify_mid(t, club_name, R):
+    """含中层管理职位的一条：拆出中层管理部分；同一条里的其它职位照原规则分类。"""
     c = clean_role(t, club_name) or t
     c = re.sub(r"^会员[（(](.*)[）)]$", r"\1", c)
     full = c.strip("。.· ")
     c = re.sub(r"[（(][^）)]*[）)]", "", c).strip("。.· ") or c   # 去掉「（已取消，但有进行筹备工作）」这类备注
-    if not MID_RE.search(c):   # 中层字眼只在括号里，如「家族家长（小组组长）」→ 整条算一个
+    if not R.has_mid(c):   # 中层字眼只在括号里，如「家族家长（小组组长）」→ 整条算一个
         return {"mid": [full]}
-    if "校内服务负责人" in c:   # 「校内服务负责人：新春快闪、运动会…演出」→ 拆开，每项各算 1 个（上级 2026-09-24）
-        items = [x.strip("·：: ") for x in re.split(r"[、，,；;/]", c.split("校内服务负责人", 1)[1]) if x.strip("·：: ")]
-        return {"mid": list(dict.fromkeys(f"校内服务负责人·{x}" for x in items)) or ["校内服务负责人"]}
+    for w in R.split_words:   # 规则表里标了「拆开」的，如「校内服务负责人：A、B」→ 每项各算 1 个
+        if w in c.lower():
+            head = c[c.lower().index(w):c.lower().index(w) + len(w)]
+            items = [x.strip("·：: ") for x in re.split(r"[、，,；;/]", c[c.lower().index(w) + len(w):]) if x.strip("·：: ")]
+            return {"mid": list(dict.fromkeys(f"{head}·{x}" for x in items)) or [head]}
     if re.match(r"(负责)?(监督|督导)", c):   # 「监督壁报股，多媒体，课程…」：整条都是监督的对象，不拆
         return {"mid": [c]}
     parts = [x for x in (p.strip("·").strip() for p in MID_SPLIT.split(c)) if x]
-    mids = [_mid_label(p) for p in parts if MID_RE.search(p)]
-    rest = [p for p in parts if not MID_RE.search(p)]
+    mids = [_mid_label(p, R) for p in parts if R.has_mid(p)]
+    rest = [p for p in parts if not R.has_mid(p)]
     if not mids:
-        mids = [_mid_label(c)]
+        mids = [_mid_label(c, R)]
     out = {"mid": list(dict.fromkeys(mids))}
     if rest:
         r = classify_role(rest[0], club_name) if len(rest) == 1 else {"other": "、".join(rest)}
@@ -355,42 +353,55 @@ def _classify_mid(t, club_name):
     return out
 
 
+_CTX_DROP = re.compile(r"^[（(]\d+[）)]|学会|执委")
+
+
+def _with_context(std, words, t, club_name):
+    """标准职称前面还写了别的单位 / 活动（例：「联课处工委联课表扬大会——副总务」）→ 保留下来：
+    执委(联课处工委联课表扬大会-事务(副))。用「+」「兼」连着的另一个职位 → 另外算一个执委(…)。"""
+    c = re.sub(r"[。.；;，,]+$", "", clean_role(t, club_name) or t)
+    m = re.search(r"(?:正|副)?(?:执委)?(?:正|副)?" + words + r"(?:股)?(?:[（(](?:正|副)[）)])?", c)
+    if not m:
+        return {"std": std}
+    before, after = c[:m.start()], c[m.end():]
+    clean = lambda x: _CTX_DROP.sub("", x).strip("·-—–－:：+＋、，, ")
+    before, after = clean(before), clean(after)
+    if not before and not after:
+        return {"std": std}
+    if re.search(r"[+＋]|兼", c):   # 「财政+联课处工委」：两个职位
+        return {"std": std, "other": "、".join(x for x in (before, after) if x)}
+    return {"other": "-".join(x for x in (before, std, after) if x)}
+
+
 def classify_role(raw, club_name=""):
-    """返回 {'std': 标准写法} / {'other': 其它职位名} / {'mid': [中层职位…]}（可同时有）或 None"""
+    """执委栏的一条 → {'std': 标准写法} / {'other': 其它职位名} / {'mid': [中层管理职位…]}（可同时有）或 None。
+    按 member_rules.json「四、职位归类」从上往下找第一条符合的规则。"""
+    R = MR.get()
     t = norm(raw)
     t = re.sub(r"^\d{1,2}[，,、.．]", "", t)
     t = re.sub(r"[。；;，,.]+$", "", t)
     if not t or EMPTY_RE.match(t) or re.fullmatch(r"[（(]?无[）)]?", t):
         return None
-    if "助理总学长" in t:
-        return {"std": "助理总学长"}
-    # 上级 2026-09-24：合唱团「音乐主席」、二十四节令鼓队的队长类，等级与执委主席相同
-    if "音乐主席" in t:
-        return {"std": f"主席({_side(t, '音乐主席') or _no_side(t)})"}
-    if "节令鼓" in norm(club_name or "") + t and re.search(r"队长", t):
-        return {"std": f"主席({'副' if '副队长' in t else '正'})"}
-    # 上级 2026-09-24：助理类、授课人类（含助教、小教练、教官）、队长类、监督/督导/顾问/教练/领队类 → 从执委/会员分开，另计「中层管理」
-    if MID_RE.search(t):
-        return _classify_mid(t, club_name)
-    if re.search(r"会员|团员|队员", t) and "组员" not in t:
+    rule = R.role_rule(t, club_name)
+    kind = rule.get("归类") if rule else None
+    if kind == "执委":
+        return {"std": rule.get("写法") or rule.name}
+    if kind == "主席级":
+        w = rule.hit_first(t) or "主席"
+        return {"std": f"主席({_side(t, re.escape(w)) or _no_side(t)})"}
+    if kind == "中层管理":
+        r = _classify_mid(t, club_name, R)
+        # 显示成「校内服务负责人-新春快闪」（用「-」连接，不用「·」）
+        r["mid"] = list(dict.fromkeys(re.sub(r"\s*·\s*", "-", m) for m in r["mid"]))
+        return r
+    if kind == "会员":
         return {"std": "会员"}
-    # 上级 2026-09-24：童军「分团」职位（队长类除外）→ 算「会员」
-    if "分团" in t:
-        return {"std": "会员"}
-    if not NOT_TITLE.search(t):
-        if "总学长" in t:
-            s = _side(t, "总学长")
-            return {"std": f"总学长({s or _no_side(t)})"}
-        if re.search(r"(?<![小中分])副队长", t):
-            return {"std": "副队长"}
-        if re.search(r"(?<![小中分组])队长", t):
-            return {"std": "队长"}
-        for title, rx, side_rx in TITLES:
+    if not any(w in t.lower() for w in R.not_title):
+        for name in R.titles_side + R.titles_plain:
+            rx, side_rx = _title_rx(name, R)
             if rx.search(t):
-                s = _side(t, side_rx)
-                return {"std": f"{title}({s or _no_side(t)})"}
-        if re.search(r"查账(?!股)", t):
-            return {"std": "查账"}
+                std = name if name in R.titles_plain else f"{name}({_side(t, side_rx) or _no_side(t)})"
+                return _with_context(std, side_rx, t, club_name)
     c = clean_role(t, club_name)
     if not c or c in ("执委", "执委层"):
         return {"std": "执委"}
@@ -424,46 +435,16 @@ def standard_roles_from(classified):
 
 # ---------------------------------------------------------------- 获奖识别
 def is_award(s) -> bool:
-    s = str(s)
-    if AWARD_RE.search(s) or re.search(r"[八四十]强|半决赛|决赛入围|Honou?rable|mention|表扬奖|medal", s, re.I):
-        return True
-    parts = re.split(r"——|--|—|–|－|：|:|\s-\s|(?<=\S)-(?=\S*奖)", s)
-    if len(parts) > 1 and re.search(r"奖|名次|第\S*名|强", "".join(parts[1:])):
-        return True
-    return bool(re.search(r"(获得?|荣获|赢得).{0,12}(奖|名|冠|强)", s))
+    """比赛条目算不算获奖 → 规则在 award.json"""
+    from . import award_rules
+    return award_rules.get().why(s) is not None
 
 
 # ---------------------------------------------------------------- 计分规则（手册）
-# R1 以班级为单位的内容/服务/活动/比赛不计（学会的筹委、团内工作照算）
-# 另外列出校内班级赛的活动名称（条目里可能没写「班级」两字）
-CLASS_RE = re.compile(r"班级|班际|班长|班代|班委|班会|全班|本班|班务|康乐委员|学艺委员|常务委员|事务委员|班歌|班服|班旗|心动不如\s*sing\s*动|开启你的\s*music\s*show|运动会.{0,6}(?:写生|号码布|短片)", re.I)  # 运动会写生/号码布设计/短片制作比赛属班级活动（上级 2026-09-24）
-CLASS_EXEMPT = {"comm", "team"}
+# R1 以班级为单位的内容/服务/活动/比赛不计 → 见 member_rules.json「一、不计」
 # R2 B 类（体育、学术培训队）整年不计；A/C/D/E 类照算
 B_NAME_RE = re.compile(r"培训队|篮球|排球|羽球|足球|乒乓|田径|游泳|辩论|口才|时事常识|数学培训")
-# R4 比赛须代表本学会：各学会的比赛关键词
-CLUB_KW = {
-    "A01": r"学长|步操|基本操|花式操|操练|交流营", "A02": r"童军|步操|基本操|露营|野外|结绳|童行|扎营|交流营",
-    "A03": r"救伤|急救|圣约翰|St\.?\s*John|步操|基本操|护理|交流营", "A04": r"学警|警察|步操|基本操|枪操|射击|交流营",
-    "C01": r"管乐|band|Muzik|铜管|木管|打击乐|室内乐|春蕾|音乐节|器乐|合奏|独奏|乐团",
-    "C02": r"华乐|民乐|春蕾|音乐节|器乐|合奏|独奏|乐团|二胡|琵琶|古筝|扬琴|笛|阮|唢呐",
-    "C03": r"合唱|歌唱|歌曲|声乐|choir|choral|MCE|(?<![A-Za-z])sing(?![A-Za-z])|Song",
-    "C04": r"舞|dance|PETARA", "C05": r"戏剧|戏聚|话剧|剧|演员|TEAM聚团|戏",
-    "C06": r"武术|wushu|南拳|长拳|太极|南棍|南刀|刀术|剑术|棍术|枪术|套路|武", "C07": r"鼓", "C08": r"扯铃|铃|diabolo|SPIN",
-    "D01": r"华文|中文|文学|作文|征文|散文|诗|汉字|朗诵|写作|茶艺|春联|挥春|对联",
-    "D03": r"英文|English|Literary|Spelling|Poem|Short Stor|Essay|Writing|Speech",
-    "D04": r"数学|Math|SMC|AMC|AMO|SASMO|陈景润|Kangaroo|袋鼠|奥数", "D05": r"生物|Biology|科学|生态|自然",
-    "D10": r"美术|绘画|写生|画|设计|Art|海报|创作|素描|水彩", "D11": r"书法|挥春|硬笔|写字|春联|对联",
-    "D12": r"电脑|程序|编程|coding|Robot|机器人|科技|Tech|AI|资讯|网站|电竞", "D13": r"环保|环境|绿色|再生|生态|回收",
-    "D14": r"扶轮|Interact|社区|服务", "D15": r"漫画|插画|动漫|绘画|画|Comic|Manga", "D16": r"日语|日本|日文|Japan|Nihongo",
-    "D17": r"花艺|插花|花", "D18": r"摄影|照片|photo|影像|相片", "D19": r"棋|chess|弈", "D21": r"模型|高达|DIORAMA|3D|手工|模",
-    "D22": r"旅游|地理|导游|旅", "D23": r"烹饪|厨|料理|烘焙|食|饮", "D24": r"跆拳道|taekwondo|sparring|pattern|poomsae|品势|对练|腿",
-    "D25": r"口琴|harmonica|春蕾|音乐节|合奏", "D26": r"吉他|guitar|音乐节", "D27": r"小提琴|弦乐|violin|viola|cello|春蕾|音乐节|合奏|独奏",
-    "D28": r"韩|Korea|K-?pop", "E01": r"阅读|图书|读书|书评|阅|故事", "E02": r"编辑|写作|征文|文学|新闻|刊|作文", "E03": r"舞台|灯光|音响|技术|音控",
-}
-OTHER_KW = {"体育": r"运动会|田径|篮球|排球|羽球|足球|乒乓|游泳|接力|铅球|跳远|跳高|越野|马拉松|跑|跳绳|拔河|球",
-            "辩论/口才": r"辩论|辩|口才|演讲|讲故事", "时事常识": r"时事|常识"}
-CLUB_KW_RE = {k: re.compile(v, re.I) for k, v in CLUB_KW.items()}
-OTHER_KW_RE = {k: re.compile(v, re.I) for k, v in OTHER_KW.items()}
+# R4 比赛须代表本学会 → 各学会关键词写在 award.json「五、比赛是否代表本学会」
 
 
 def block_class(b) -> str:
@@ -476,16 +457,9 @@ def block_class(b) -> str:
 
 
 def comp_judge(text, code):
-    own = CLUB_KW_RE.get(code)
-    if own and own.search(text):
-        return None
-    for lab, rx in OTHER_KW_RE.items():
-        if rx.search(text):
-            return f"非代表本学会（{lab}类比赛）"
-    for c, rx in CLUB_KW_RE.items():
-        if c != code and rx.search(text):
-            return f"非代表本学会（看似 {c} 类比赛）"
-    return "unsure" if own else None
+    """比赛是否代表本学会（规则在 award.json）：None=计入；"unsure"=待确认；其它字串=不计原因"""
+    from . import award_rules
+    return award_rules.get().comp_judge(text, code)
 
 
 def _simp(t):
@@ -495,91 +469,27 @@ def _simp(t):
     return re.sub(r"^(参加|参与|代表\S{0,6}参加)", "", t)
 
 
-# ---------------------------------------------------------------- 执委栏里的活动筹委 → 移到筹委（上级 2026-09-24 确认）
-# 为某个活动而组成的筹委团职位不是学会行政的执委，即使写在执委栏也算筹委。
-# 监督 / 督导 / 顾问类、联课处工委、毕联会等常设职位仍留在执委栏。
-EVENT_STAY = re.compile(r"监督|督导|顾问|教练|领队|联课处|例常活动|联课活动组别|最佳学员|校内服务负责人")
-EVENT_EXPLICIT = re.compile(r"筹委|筹主|筹办")
-EVENT_NAME = re.compile(r"《|欢送会|惜别会|成果汇报|园游会|谢师宴|晚宴|午宴|户外考察|比赛|新生营|干训营|交流营|培训营|开放日|运动会|庆典|聚会|文娱汇演|教师节活动|大师班|快闪|义卖|市集|花市")
-EVENT_POS = re.compile(r"主席|秘书|财政|总务|查账|事务|股|负责人|带领人|工委|助手|汇报员")
-
-
-def is_event_committee(text) -> bool:
-    t = norm(text)
-    if EVENT_STAY.search(t):
-        return False
-    return bool(EVENT_EXPLICIT.search(t) or (EVENT_NAME.search(t) and EVENT_POS.search(t)))
-
-
-# 监督 / 督导 / 顾问 / 教练 / 领队类：一律算执委（写在筹委栏的也移过去）（上级 2026-09-24）
-SUPERVISE = re.compile(r"监督|督导|顾问|(?<!小)教练|领队")
-# 运动会、田径赛等学校层面的活动：不是代表学会，算班级，不计筹委也不计执委（上级 2026-09-24）
-SCHOOL_SPORTS = re.compile(r"运动会|田径")
-SCHOOL_SPORTS_KEEP = re.compile(r"义卖|演出|表演")
-
-
-def is_school_sports(text) -> bool:
-    t = norm(text)
-    return bool(SCHOOL_SPORTS.search(t) and (not SCHOOL_SPORTS_KEEP.search(t) or "班级" in t))
-
-
-# 高三毕联会（毕业班联合会）属于年级，不属于学会：不计执委也不计筹委（上级 2026-09-24）
-# 上级 2026-09-24：编辑工委会、广告工委会、教师节工委会都属于高三年级组 / 毕联会
-GRADE_ORG = re.compile(r"毕联|毕业班联合会|毕业联合会|毕业班联|年级组|(?:编辑|广告|教师节)工委会")
+# ---------------------------------------------------------------- 执委栏 ↔ 筹委栏 的移动
+# 什么要移、什么不计，写在 member_rules.json 的「一、不计」「二、执委栏移到筹委栏」「三、筹委栏移到执委栏」。
 
 
 def _split_grade_parts(arr):
     """一条里同时写了学会职位和毕联会职位（用逗号隔开）时，拆成两条，只让毕联会那部分不计。"""
+    R = MR.get()
     out = []
     for t in arr:
         parts = [p.strip() for p in re.split(r"[，,；;]", t) if p.strip()]
-        if len(parts) > 1 and any(GRADE_ORG.search(p) for p in parts) and not all(GRADE_ORG.search(p) for p in parts):
-            keep = [p for p in parts if not GRADE_ORG.search(p)]
-            grade = [p for p in parts if GRADE_ORG.search(p)]
-            out.append("，".join(keep))
-            out.extend(grade)
+        if len(parts) > 1 and any(R.is_grade(p) for p in parts) and not all(R.is_grade(p) for p in parts):
+            out.append("，".join(p for p in parts if not R.is_grade(p)))
+            out.extend(p for p in parts if R.is_grade(p))
         else:
             out.append(t)
     return out
 
 
-# 特别标记：联课处工委、文娱工委、XXX志工工委、国际交流筹委/负责人（上级 2026-09-24）——只做标记，不改变计分
-SPECIAL_RE = re.compile(r"联课处?工委|文娱工委|志工工委")
-
-
-INTL_RE = re.compile(r"国际.{0,4}交流")
-
-
 def special_label(text, cat=None):
-    t = norm(text)
-    m = SPECIAL_RE.search(t)
-    if m:
-        w = m.group(0)
-        return "联课处工委" if w.startswith("联课") else w
-    # 国际交流的筹委 / 负责人（写在筹委栏的都算筹委）（上级 2026-09-24）
-    if INTL_RE.search(t) and (cat == "comm" or re.search(r"筹委|负责人", t)):
-        return "国际交流筹委/负责人"
-    return None
-
-
-def is_sports_sale(text) -> bool:
-    """运动会上的义卖（学会摊位、兜售等）→ 不计"""
-    t = norm(text)
-    return bool(SCHOOL_SPORTS.search(t) and "义卖" in t)
-
-
-def _sports_class(text) -> bool:
-    """班级名义的运动会活动（如「班级运动会义卖活动负责人」）→ 不计"""
-    t = norm(text)
-    return bool(SCHOOL_SPORTS.search(t) and "班级" in t)
-
-
-# 上级 2026-09-24：「监督XX主席」「督导XXX主席」属于活动筹委（移到筹委）；其它监督/督导类仍算会员
-SUPERVISE_CHAIR = re.compile(r"(监督|督导).*主席|主席.{0,3}(监督|督导)|(监督|督导)(正|副)?主席")
-
-
-def is_supervise_chair(text) -> bool:
-    return bool(SUPERVISE_CHAIR.search(norm(text)))
+    """特别标记（member_rules.json「五、特别标记」）——只做标记，不改变计分"""
+    return MR.get().special_label(norm(text), cat)
 
 
 def _split_supervise(arr):
@@ -595,19 +505,38 @@ def _split_supervise(arr):
     return out
 
 
+def _split_mixed_comm(arr, R, col="role"):
+    """「A 兼 B」两个职位该放不同栏（一个是筹委、一个是执委 / 中层管理）→ 拆成两条，各自移到该去的栏。
+    连接词见 member_rules.json「二」的「拆开连接词」。"""
+    if not R.comm_joiners:
+        return arr
+    rx = re.compile("|".join(map(re.escape, R.comm_joiners)))
+    test = R.moves_to_comm if col == "role" else R.moves_to_role
+    out = []
+    for t in arr:
+        parts = [p.strip(" 　。.") for p in rx.split(t) if p.strip(" 　。.")]
+        if len(parts) > 1:
+            mv = [test(p) for p in parts]
+            if any(mv) and not all(mv):
+                out.extend(parts)
+                continue
+        out.append(t)
+    return out
+
+
 def move_event_roles(s):
+    R = MR.get()
     for b in s["blocks"]:
         for k in ("role", "comm"):
             if k in b["cats"]:
                 b["cats"][k] = _split_grade_parts(b["cats"][k])
         if "role" in b["cats"]:
-            b["cats"]["role"] = _split_supervise(b["cats"]["role"])
+            b["cats"]["role"] = _split_mixed_comm(_split_supervise(b["cats"]["role"]), R, "role")
+        if "comm" in b["cats"]:
+            b["cats"]["comm"] = _split_mixed_comm(b["cats"]["comm"], R, "comm")
         roles, comms = b["cats"].get("role", []), b["cats"].get("comm", [])
-        # 运动会 / 田径赛的职位算「服务筹委团」（上级 2026-09-24 改定），也移到筹委
-        to_comm = [t for t in roles if (is_event_committee(t) or is_school_sports(t)) and not _sports_class(t)]
-        to_comm += [t for t in roles if is_supervise_chair(t) and t not in to_comm]
-        # 「校内服务负责人」留在执委栏，算中层管理（上级 2026-09-24 最新）
-        to_role = [t for t in comms if SUPERVISE.search(norm(t)) and not is_school_sports(t) and not is_supervise_chair(t)]
+        to_comm = [t for t in roles if R.moves_to_comm(t)]
+        to_role = [t for t in comms if R.moves_to_role(t)]
         if not to_comm and not to_role:
             continue
         new_role = [t for t in roles if t not in to_comm] + to_role
@@ -621,20 +550,13 @@ def move_event_roles(s):
 
 
 def compute_exclusions(s):
+    R = MR.get()
     for b in s["blocks"]:
         b["exBlock"] = "B类（体育/学术培训队）不计" if block_class(b) == "B" else None
         b["ex"], b["unsure"] = {}, {}
         for k, arr in b["cats"].items():
-            b["ex"][k] = ["以班级为单位，不计" if (k not in CLASS_EXEMPT and CLASS_RE.search(t)) else None for t in arr]
-            # 毕联会属于年级：它的职位、筹委不计；服务时数、活动照算（上级 2026-09-24 纠正）
-            if k in ("role", "comm"):
-                b["ex"][k] = [e or ("毕联会/高三年级组属于年级，不属于学会，职位/筹委不计" if GRADE_ORG.search(norm(t)) else None) for e, t in zip(b["ex"][k], arr)]
-            if k in ("role", "comm"):
-                b["ex"][k] = [e or ("班级的运动会活动，不计" if _sports_class(t) else None) for e, t in zip(b["ex"][k], arr)]
-            # 感恩聚会不算学会活动（所有栏目都不计）（上级 2026-09-24）
-            b["ex"][k] = [e or ("感恩聚会不算学会活动，不计" if "感恩聚会" in norm(t) else None) for e, t in zip(b["ex"][k], arr)]
-            # 运动会义卖不计（所有栏目）；运动会上的演出、服务照算（上级 2026-09-24）
-            b["ex"][k] = [e or ("运动会义卖不计" if is_sports_sale(t) else None) for e, t in zip(b["ex"][k], arr)]
+            # member_rules.json「一、不计」：班级、毕联会/高三年级组、班级运动会、感恩聚会、运动会义卖……
+            b["ex"][k] = [R.exclusion(t, k) for t in arr]
 
             if k in ("extComp", "intComp"):
                 for i, t in enumerate(arr):
@@ -658,8 +580,10 @@ def compute_exclusions(s):
                     seen[key] = (b, k, i)
                     continue
                 p = seen[key]
-                own_new = bool(CLUB_KW_RE.get(b.get("clubCode")) and CLUB_KW_RE[b["clubCode"]].search(t))
-                own_old = bool(CLUB_KW_RE.get(p[0].get("clubCode")) and CLUB_KW_RE[p[0]["clubCode"]].search(t))
+                from . import award_rules
+                A = award_rules.get()
+                own_new = A.own(b.get("clubCode"), t)
+                own_old = A.own(p[0].get("clubCode"), t)
                 drop, keep = (p, (b, k, i)) if (own_new and not own_old) else ((b, k, i), p)
                 db, dk, di = drop
                 if not db["exBlock"] and not db["ex"][dk][di]:

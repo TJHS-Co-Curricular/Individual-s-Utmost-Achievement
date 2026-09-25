@@ -1,5 +1,8 @@
 @echo off
 setlocal
+rem This script lives in scripts\ ; work from the project root (one level up).
+pushd "%~dp0.."
+set "ROOT=%CD%"
 
 echo ============================================================
 echo  Building a portable EXE (one-time setup)
@@ -19,6 +22,7 @@ if errorlevel 1 (
     echo on one computer.
     echo.
     pause
+    popd
     exit /b 1
 )
 
@@ -33,7 +37,7 @@ if errorlevel 1 goto :fail
 if errorlevel 1 goto :fail
 
 echo [3/5] Building the EXE, this can take a minute or two ...
-.buildenv\Scripts\python.exe -m PyInstaller --onefile --console --name "Individual's Utmost Achievement Calculator" --add-data "%~dp0templates;templates" --add-data "%~dp0static;static" --collect-data pdfminer --collect-submodules python_calamine --exclude-module tkinter --exclude-module numpy --exclude-module pandas --distpath . --workpath .buildwork --specpath .buildwork app.py
+.buildenv\Scripts\python.exe -m PyInstaller --onefile --console --name "Individual's Utmost Achievement Calculator" --add-data "%ROOT%\templates;templates" --add-data "%ROOT%\static;static" --add-data "%ROOT%\config;config" --collect-data pdfminer --collect-submodules python_calamine --exclude-module tkinter --exclude-module numpy --exclude-module pandas --distpath . --workpath .buildwork --specpath .buildwork app.py
 if errorlevel 1 goto :fail
 
 echo [4/5] Cleaning up build files ...
@@ -43,7 +47,7 @@ rmdir /s /q .buildenv >nul 2>nul
 echo [5/5] Done!
 echo.
 echo ============================================================
-echo  "Individual's Utmost Achievement Calculator.exe" is ready, right here in this folder.
+echo  "Individual's Utmost Achievement Calculator.exe" is ready in the project folder.
 echo.
 echo  It is fully portable: copy it, together with a "Result"
 echo  folder placed next to it, to any Windows computer and just
@@ -51,6 +55,7 @@ echo  double-click it. No Python required on that computer.
 echo ============================================================
 echo.
 pause
+popd
 exit /b 0
 
 :fail
@@ -59,4 +64,5 @@ echo [ERROR] Something went wrong during the build. See the messages above.
 rmdir /s /q .buildwork >nul 2>nul
 rmdir /s /q .buildenv >nul 2>nul
 pause
+popd
 exit /b 1

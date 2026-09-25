@@ -7,7 +7,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import rules
+from . import award_rules, member_rules, rules
 from .reader import read_any
 
 _cache: dict[str, tuple[int, int, dict | None, str | None]] = {}
@@ -26,6 +26,8 @@ def list_files(folder: Path):
 def folder_version(folder: Path) -> str:
     """文件夹内容指纹（文件名 + 修改时间 + 大小），任何增删改都会改变它。"""
     h = hashlib.md5()
+    h.update(member_rules.fingerprint().encode("utf-8"))   # 改了 member_rules.json / award.json 也要重算
+    h.update(award_rules.fingerprint().encode("utf-8"))
     for p in list_files(folder):
         try:
             st = p.stat()

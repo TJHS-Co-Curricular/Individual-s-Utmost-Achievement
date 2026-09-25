@@ -88,7 +88,7 @@ td.role{max-width:240px;overflow:hidden;text-overflow:ellipsis}
 /* drawer */
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.28);opacity:0;pointer-events:none;transition:opacity .15s;z-index:20}
 .scrim.on{opacity:1;pointer-events:auto}
-.drawer{position:fixed;top:0;right:0;height:100%;width:min(760px,100%);background:var(--bg);box-shadow:var(--shadow);transform:translateX(102%);transition:transform .2s ease;z-index:21;display:flex;flex-direction:column}
+.drawer{position:fixed;top:0;right:0;height:100%;width:var(--dw,min(max(820px,60vw),1100px,100%));max-width:100%;background:var(--bg);box-shadow:var(--shadow);transform:translateX(102%);transition:transform .2s ease;z-index:21;display:flex;flex-direction:column}
 .drawer.on{transform:none}
 .dhead{padding:18px 20px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
 .dhead h2{margin:0;font-size:20px}
@@ -177,3 +177,29 @@ td.name span.sp{color:var(--warn);font-size:11px;margin-left:6px}
 
 /* 中层（助理/授课人/队长类） */
 .pill.mid{background:var(--surface-2);border:1px dashed var(--line-strong);color:var(--text-2)}
+
+/* 个人页「简单」表：数字一行，执委 / 中层管理放在下面整行，自动换行 */
+table.simple{min-width:0;width:100%}
+table.simple td.cc{min-width:110px}
+table.simple td.cc .muted{font-size:12px;margin-top:2px}
+table.simple tbody.yr{cursor:pointer}
+table.simple tbody.yr:hover td{background:var(--surface-2)}
+table.simple tbody.yr tr.nums td{border-bottom:0}
+table.simple tr.roles-row td{padding-top:0;border-bottom:1px solid var(--line)}
+table.simple tbody.yr:not(:has(.roles-row)) tr.nums td{border-bottom:1px solid var(--line)}
+.rblock+.rblock{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+.rclub{font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px}
+.rl{display:flex;gap:8px;align-items:flex-start;margin:3px 0}
+.rl-k{flex:0 0 auto;font-size:11px;color:var(--muted);padding-top:3px;min-width:4.5em}
+.rl-v{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+.rl-v .pill{white-space:normal;line-height:1.5;max-width:100%}
+.rl-v .pill.role{background:var(--accent-soft);border-color:transparent;color:var(--text)}
+.rl-v .pill.more{display:none}
+.rl-v.open .pill.more{display:inline-block}
+.morebtn{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--surface);color:var(--accent-ink);border-radius:999px;padding:0 8px;cursor:pointer}
+.stdrole .pill.mid{display:inline-block;margin:0 4px 3px 0;font-weight:500}
+/* 拖动调整个人页宽度 */
+.dresize{position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:2}
+.dresize:hover{background:linear-gradient(90deg,transparent 3px,var(--accent) 3px,var(--accent) 5px,transparent 5px)}
+body.resizing{user-select:none;cursor:ew-resize}
+body.resizing .drawer{transition:none}
