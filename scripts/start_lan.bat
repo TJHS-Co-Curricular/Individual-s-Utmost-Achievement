@@ -8,8 +8,8 @@ rem  They can view / search / download; only this PC can change
 rem  the manual "count / don't count" adjustments.
 rem ============================================================
 pushd "%~dp0.."
-if exist "Individual's Utmost Achievement Calculator.exe" (
-    "Individual's Utmost Achievement Calculator.exe" --lan
+if exist "Achievement-Award-Viewer.exe" (
+    "Achievement-Award-Viewer.exe" --lan
 ) else (
     python app.py --lan
 )

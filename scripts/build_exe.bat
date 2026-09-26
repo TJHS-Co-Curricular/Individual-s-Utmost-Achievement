@@ -37,7 +37,7 @@ if errorlevel 1 goto :fail
 if errorlevel 1 goto :fail
 
 echo [3/5] Building the EXE, this can take a minute or two ...
-.buildenv\Scripts\python.exe -m PyInstaller --onefile --console --name "Individual's Utmost Achievement Calculator" --add-data "%ROOT%\templates;templates" --add-data "%ROOT%\static;static" --add-data "%ROOT%\config;config" --collect-data pdfminer --collect-submodules python_calamine --exclude-module tkinter --exclude-module numpy --exclude-module pandas --distpath . --workpath .buildwork --specpath .buildwork app.py
+.buildenv\Scripts\python.exe -m PyInstaller --onefile --console --name "Achievement-Award-Viewer" --add-data "%ROOT%\templates;templates" --add-data "%ROOT%\static;static" --add-data "%ROOT%\config;config" --collect-data pdfminer --collect-submodules python_calamine --exclude-module tkinter --exclude-module numpy --exclude-module pandas --distpath . --workpath .buildwork --specpath .buildwork app.py
 if errorlevel 1 goto :fail
 
 echo [4/5] Cleaning up build files ...
@@ -47,7 +47,7 @@ rmdir /s /q .buildenv >nul 2>nul
 echo [5/5] Done!
 echo.
 echo ============================================================
-echo  "Individual's Utmost Achievement Calculator.exe" is ready in the project folder.
+echo  "Achievement-Award-Viewer.exe" is ready in the project folder.
 echo.
 echo  It is fully portable: copy it, together with a "Result"
 echo  folder placed next to it, to any Windows computer and just
