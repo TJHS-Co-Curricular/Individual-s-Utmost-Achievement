@@ -10,13 +10,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import sys
 from pathlib import Path
 
+from .paths import config_candidates, find_config   # 规则文件放在 config/
+
 FILE_NAME = "member_rules.json"
-CONFIG_DIR = "config"   # 规则文件（member_rules.json、award.json）放在项目的 config/ 文件夹
 _WS = re.compile(r"[\s 　​-‏⁠-⁯﻿]+")
 
 
@@ -25,31 +24,12 @@ def _norm(s) -> str:
 
 
 def candidates(file_name=FILE_NAME, env_name="ACHIEVEMENT_MEMBER_RULES"):
-    """规则文件的查找顺序（找到第一个就用）：
-    1. 环境变量指定的文件
-    2. exe 旁边的 config/（打包版：把改好的规则放这里就会优先采用，不用重新打包）
-    3. exe 旁边（旧的放法，仍然支持）
-    4. 打包在 exe 里的 config/
-    开发时（python app.py）：项目的 config/，其次项目根目录（旧的放法）。"""
-    out = []
-    env = os.environ.get(env_name)
-    if env:
-        out.append(Path(env))
-    if getattr(sys, "frozen", False):
-        exe_dir = Path(sys.executable).resolve().parent
-        out += [exe_dir / CONFIG_DIR / file_name, exe_dir / file_name,
-                Path(getattr(sys, "_MEIPASS", ".")) / CONFIG_DIR / file_name]
-    else:
-        root = Path(__file__).resolve().parent.parent
-        out += [root / CONFIG_DIR / file_name, root / file_name]
-    return out
+    """规则文件的查找顺序：见 paths.config_candidates（config/ 优先）。"""
+    return config_candidates(file_name, env_name)
 
 
 def find_file(file_name, env_name) -> Path:
-    for p in candidates(file_name, env_name):
-        if p.is_file():
-            return p
-    raise FileNotFoundError(f"找不到 {file_name}（应放在程序旁边）：" + "；".join(map(str, candidates(file_name, env_name))))
+    return find_config(file_name, env_name)
 
 
 def path() -> Path:

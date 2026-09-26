@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 import re
 
-from .member_rules import _norm, find_file
+from .member_rules import _norm
+from .paths import find_config as find_file
 
 FILE_NAME = "award.json"
 _PART_SPLIT = re.compile(r"——|--|—|–|－|：|:|\s-\s|(?<=\S)-(?=\S*奖)|-\s+(?=\S*奖)")

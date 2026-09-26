@@ -31,16 +31,16 @@ const COLS=[
   {k:'name',t:'姓名',get:s=>s.cn||s.en},
   {k:'cls',t:'班级',get:s=>s.cls},
   {k:'nyears',t:'年数',num:1,get:s=>new Set(s.years).size},
-  {k:'roleLatest',t:'职务（最新一年）',get:(s,st)=>st.roleLatest||''},
+  {k:'roleLatest',t:'职务',sub:'（最新一年）',get:(s,st)=>st.roleLatest||''},
   {k:'roles',t:'职务数',num:1},
-  {k:'mid',t:'中层管理',num:1},
+  {k:'mid',t:'中层<br>管理',num:1},
   {k:'comm',t:'筹委',num:1},
   {k:'comp',t:'比赛',num:1,get:(s,st)=>st.extComp+st.intComp},
   {k:'awards',t:'获奖 ★',num:1},
   {k:'act',t:'活动',num:1,get:(s,st)=>st.extAct+st.intAct},
-  {k:'team',t:'团内工作',num:1},
+  {k:'team',t:'团内<br>工作',num:1},
   {k:'svc',t:'服务项',num:1,get:(s,st)=>st.extSvc+st.intSvc},
-  {k:'hours',t:'服务时数',num:1},
+  {k:'hours',t:'服务<br>时数',num:1},
   {k:'unsure',t:'待确认',num:1},
 ];
 const val=(c,s,st)=>c.get?c.get(s,st):st[c.k];
@@ -72,12 +72,12 @@ function renderTable(){
   const col=COLS.find(c=>c.k===state.sort);
   rows.sort((a,b)=>{let x=val(col,a.s,a.st),y=val(col,b.s,b.st);if(typeof x==='string'||typeof y==='string')return state.dir*String(x).localeCompare(String(y),'zh');return state.dir*((x||0)-(y||0))||a.s.sid.localeCompare(b.s.sid)});
   const maxH=Math.max(1,...rows.map(r=>r.st.hours||0));
-  $('#tbl thead').innerHTML='<tr>'+COLS.map(c=>c.k==='cmp'?'<th title="勾选以对比">⇆</th>':`<th data-k="${c.k}" class="${c.num?'num':''} ${state.sort===c.k?'sorted':''}">${c.t}<span class="arr">${state.sort===c.k?(state.dir<0?'▼':'▲'):'↕'}</span></th>`).join('')+'</tr>';
+  $('#tbl thead').innerHTML='<tr>'+COLS.map(c=>c.k==='cmp'?'<th title="勾选以对比">⇆</th>':`<th data-k="${c.k}" class="${c.num?'num':''} ${state.sort===c.k?'sorted':''}">${c.t}<span class="arr">${state.sort===c.k?(state.dir<0?'▼':'▲'):'↕'}</span>${c.sub?`<span class="sub">${c.sub}</span>`:''}</th>`).join('')+'</tr>';
   $('#tbl tbody').innerHTML=rows.map(({s,st})=>'<tr data-id="'+esc(s.sid||s.file)+'">'+COLS.map(c=>{
     if(c.k==='cmp') return `<td class="cmp"><input type="checkbox" class="cb" ${state.cmp.has(s.sid||s.file)?'checked':''}></td>`;
-    if(c.k==='name') return `<td class="name"><b>${esc(s.cn)}</b><span>${esc(s.en)}</span>${spBadge(s)}${s.issues.length?' <span class="flag" title="'+esc(s.issues.join('；'))+'">⚠</span>':''}</td>`;
+    if(c.k==='name') return `<td class="name"><b>${esc(s.cn)}</b>${spBadge(s)}${s.issues.length?' <span class="flag" title="'+esc(s.issues.join('；'))+'">⚠</span>':''}<span class="en">${esc(s.en)}</span></td>`;
     if(c.k==='roleLatest'){const r=st.roleLatest;return `<td class="role" title="${esc(r)}">${esc(r)||'<span class="zero">—</span>'}</td>`}
-    if(c.k==='code') return `<td><span class="pill">${esc(s.code)}</span> ${esc(s.club)}</td>`;
+    if(c.k==='code') return `<td class="club"><span class="pill">${esc(s.code)}</span> ${esc(s.club)}</td>`;
     if(c.k==='hours'){const h=st.hours||0;return `<td class="num"><div class="hbar"><span>${fmt(h)}</span><span class="track"><i style="width:${(h/maxH*100).toFixed(1)}%"></i></span></div></td>`}
     if(c.k==='unsure'){return `<td class="num">${st.unsure?`<span class="flag">${st.unsure}</span>`:'<span class="zero">0</span>'}</td>`}
     const v=val(c,s,st); return `<td class="${c.num?'num':''} ${c.num&&!v?'zero':''}">${esc(v)}</td>`;
@@ -103,11 +103,26 @@ let CUR=null,CUR_ID=null;
 let DMODE='simple';try{DMODE=localStorage.getItem('drawerMode')||'simple'}catch(e){}
 function yearGroups(s){const g=[];for(const b of s.blocks){let x=g.find(y=>y.year===b.year);if(!x){x={year:b.year,blocks:[]};g.push(x)}x.blocks.push(b)}return g}
 const spBadge=s=>(s.special||[]).map(x=>`<span class="sp" title="特别标记">★ ${esc(x)}</span>`).join('');
+// 执委 / 中层管理 / 筹委：每个职位一行，前面标明类别（简单、详细都用）
+function splitTop(x){const out=[];let d=0,cur='';for(const ch of x){if(ch==='('||ch==='（')d++;if(ch===')'||ch==='）')d--;if((ch===','||ch==='，')&&d===0){out.push(cur);cur=''}else cur+=ch}if(cur)out.push(cur);return out.map(t=>t.trim()).filter(Boolean)}
+function posLines(std,mid,comm){
+  const L=[];
+  for(const x of std||[]){const m=/^执委\((.*)\)$/.exec(x);
+    if(m)for(const p of splitTop(m[1]))L.push(['role','执委',p]);
+    else if(x==='会员')L.push(['member','会员','（不计职务数）']);
+    else L.push(['role','执委',x])}
+  for(const x of mid||[])L.push(['mid','中层管理',x]);
+  for(const x of comm||[])L.push(['comm','筹委',x]);
+  return L;
+}
+function posHTML(L,max){
+  if(!L.length)return '';
+  const more=max?L.length-max:0;
+  return `<div class="plist">${L.map(([c,k,v],i)=>`<div class="pl pl-${c}${max&&i>=max?' more':''}"><span class="pl-k">${k}：</span><span class="pl-v">${esc(v)}</span></div>`).join('')}${more>0?`<button class="morebtn" type="button">+${more} 更多</button>`:''}</div>`;
+}
 function simpleView(s){
   const groups=yearGroups(s);const tot=statsFor(s,'');
-  const MAXP=6;   // 执委 / 中层管理超过这么多个就先收起，点「+N 更多」展开
-  const pills=(arr,cls,label)=>{if(!arr.length)return '';const more=arr.length-MAXP;
-    return `<div class="rl"><span class="rl-k">${label}</span><span class="rl-v">${arr.map((x,i)=>`<span class="pill ${cls}${i>=MAXP?' more':''}">${esc(x)}</span>`).join('')}${more>0?`<button class="morebtn" type="button">+${more} 更多</button>`:''}</span></div>`};
+  const MAXP=8;   // 执委 / 中层管理 / 筹委超过这么多行就先收起，点「+N 更多」展开
   let h=`<div class="simple-wrap"><table class="simple"><thead><tr><th>年份</th><th>班级 / 学会</th><th class="num">职务<br><span>数量</span></th><th class="num">中层管理<br><span>数量</span></th><th class="num">筹委<br><span>数量</span></th><th class="num">服务<br><span>小时</span></th><th class="num">活动<br><span>数量</span></th><th class="num">工作<br><span>数量</span></th><th class="num">比赛<br><span>数量（获奖）</span></th></tr></thead>`;
   for(const g of groups){
     const st=C.computeStats(Object.assign({},s,{blocks:g.blocks}),OV,null);
@@ -119,9 +134,11 @@ function simpleView(s){
     const detail=g.blocks.map(b=>{
       if(b.exBlock)return '';
       const l=st.roleByBlock.get(b)||[],m=st.midByBlock.get(b)||[];
+      const cm=(b.cats.comm||[]).filter((t,i)=>C.itemState(s,b,'comm',i,OV).inc).map(t=>String(t).trim().replace(/[。.]$/,''));
       const sp=[...new Set(Object.values(b.sp||{}).flat().filter(Boolean))].map(x=>`<span class="sp">★ ${esc(x)}</span>`).join('');
-      if(!l.length&&!m.length&&!sp)return '';
-      return `<div class="rblock">${multi?`<div class="rclub">${esc(b.clubName)}</div>`:''}${pills(l,'role','执委')}${sp?`<div class="rl"><span class="rl-k">标记</span><span class="rl-v">${sp}</span></div>`:''}${pills(m,'mid','中层管理')}</div>`;
+      const L=posLines(l,m,cm);
+      if(!L.length&&!sp)return '';
+      return `<div class="rblock">${multi?`<div class="rclub">${esc(b.clubName)}</div>`:''}${sp?`<div class="spline">${sp}</div>`:''}${posHTML(L,MAXP)}</div>`;
     }).filter(Boolean).join('');
     h+=`<tbody class="yr" data-year="${g.year??''}" title="点击查看这一年的详细内容"><tr class="nums"><td class="y">${g.year||'年份不明'}</td><td class="cc"><div>${esc(cls)||'<span class="zero">—</span>'}</div><div class="muted">${clubs}</div></td><td class="num">${n(st.roles)}</td><td class="num">${n(st.mid)}</td><td class="num">${n(st.comm)}</td><td class="num">${st.hours?fmt(st.hours):'<span class="zero">0</span>'}</td><td class="num">${n(st.extAct+st.intAct)}</td><td class="num">${n(st.team)}</td><td class="num">${comp?comp+(st.awards?` <span class="aw">（${st.awards}★）</span>`:''):'<span class="zero">0</span>'}</td></tr>${detail?`<tr class="roles-row"><td></td><td colspan="8">${detail}</td></tr>`:''}</tbody>`;
   }
@@ -157,7 +174,7 @@ function openDrawer(s,jumpYear){
         const btn=b.exBlock?'':`<button class="tg" data-b="${s.blocks.indexOf(b)}" data-k="${c.key}" data-i="${i}">${x.inc?'不计':'计入'}</button>`;
         return `<li class="${x.inc?'':'ex'} ${spl?'spi':''} ${x.inc&&isComp&&C.isAward(it)?'aw':''}"><span class="it">${hi(it)}</span>${tags}${btn}</li>`}).join('');
       const nInc=b.cats[c.key].filter((it,i)=>C.itemState(s,b,c.key,i,OV).inc).length;
-      if(c.key==='role'){const std=st.roleByBlock.get(b)||[],mid=st.midByBlock.get(b)||[];h+=`<div class="cat"><div class="cl">执委/职务 · ${nInc}</div><div><div class="stdrole">${std.map(x=>`<span class="pill">${esc(x)}</span>`).join('')||(mid.length?'':'<span class="muted">—</span>')}${mid.map(x=>`<span class="pill mid" title="中层管理（助理/授课人/队长/监督/督导/顾问类），另计「中层管理」">中层管理：${esc(x)}</span>`).join('')}</div><div class="orig">原文：<ol>${lis}</ol></div></div></div>`;continue}
+      if(c.key==='role'){const std=st.roleByBlock.get(b)||[],mid=st.midByBlock.get(b)||[];h+=`<div class="cat"><div class="cl">执委/职务 · ${nInc}</div><div><div class="stdrole">${posHTML(posLines(std,mid))||'<span class="muted">—</span>'}</div><div class="orig">原文：<ol>${lis}</ol></div></div></div>`;continue}
       h+=`<div class="cat"><div class="cl">${c.label} · ${nInc}${nInc!==b.cats[c.key].length?`<span class="muted">/${b.cats[c.key].length}</span>`:''}</div><ol>${lis}</ol></div>`;
     }
     h+='</div></div>';
@@ -169,7 +186,7 @@ function openDrawer(s,jumpYear){
   if(jumpYear!=null){const el=$(`#dbody .year[data-year="${jumpYear}"]`);if(el){const sg=$('#dbody .seg');$('#dbody').scrollTop=el.getBoundingClientRect().top-$('#dbody').getBoundingClientRect().top+$('#dbody').scrollTop-(sg?sg.offsetHeight+16:8)}}
   $('#dbody').onclick=e=>{
     const sg=e.target.closest('.seg button');if(sg){DMODE=sg.dataset.m;try{localStorage.setItem('drawerMode',DMODE)}catch(_){ }CUR_ID=null;openDrawer(s);return}
-    const mb=e.target.closest('.morebtn');if(mb){const v=mb.closest('.rl-v');v.classList.toggle('open');mb.textContent=v.classList.contains('open')?'收起':`+${v.querySelectorAll('.pill.more').length} 更多`;return}
+    const mb=e.target.closest('.morebtn');if(mb){const v=mb.closest('.plist');v.classList.toggle('open');mb.textContent=v.classList.contains('open')?'收起':`+${v.querySelectorAll('.more').length} 更多`;return}
     const yr=e.target.closest('table.simple tbody.yr');if(yr){DMODE='detail';try{localStorage.setItem('drawerMode',DMODE)}catch(_){ }CUR_ID=null;openDrawer(s,yr.dataset.year);return}
     const bt=e.target.closest('.tg');if(!bt)return;const b=s.blocks[+bt.dataset.b],k=bt.dataset.k,i=+bt.dataset.i;const key=C.itemKey(s,b,k,b.cats[k][i],i);const x=C.itemState(s,b,k,i,OV);
     const want=x.inc?'out':'in';const autoInc=!x.auto; if((want==='in')===autoInc) delete OV[key]; else OV[key]=want; saveOV();openDrawer(s);renderInfo();renderTable();};

@@ -8,7 +8,7 @@
     "  正则：进阶用法（正则表达式），看不懂可以不理。",
     "判断顺序：先看「一、不算获奖」（例外）→ 再依次看「二」「三」「四」，任何一条符合就算获奖。",
     "「五、比赛是否代表本学会」是另一件事：决定比赛条目计不计入（例：舞蹈团学生的武术比赛不计）。",
-    "想看每个比赛条目目前算不算获奖：网页右上角「下载获奖一览」，或 python app.py --list-awards（存成 docs/generated/已知获奖一览.xlsx）。",
+    "想看每个比赛条目目前算不算获奖：网页右上角「下载获奖一览」，或 python app.py --list-awards（存成 output/已知获奖一览.xlsx）。",
     "2026-09-25b：用 Result/2025 与 Result/2026 两届资料补充了写法（马来文 Johan / Naib Johan / Tempat ke-X、Runner up、Credit、Consolation Prize 等），并收紧了几个会误判的字眼（championship、medalist、全球/地球 里的「球」、Bandar 里的 band 等）。"
   ],
 

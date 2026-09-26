@@ -2,6 +2,11 @@
 Result/
 成就奖_手动调整.json
 
+# 运行时文件夹（程序自动产生）
+data/
+output/
+logs/
+
 # 导出 / 自动产生的文件
 成就奖履历总览*.html
 成就奖统计.xlsx

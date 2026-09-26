@@ -192,5 +192,48 @@ class WholeFolder(unittest.TestCase):
             self.assertGreaterEqual(st["hours"], 0)
 
 
+class Structure(unittest.TestCase):
+    """项目结构：设定都在 config/，运行时文件夹、版本号、网站路由都正常。"""
+
+    def test_version(self):
+        import re as _re
+        from achievement import __version__
+        self.assertRegex(__version__, r"^\d+\.\d+\.\d+$")
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn(f"## {__version__}", changelog, "改了版本号要在 CHANGELOG.md 记一笔")
+        self.assertTrue(_re.search(r"^## \d", changelog, _re.M))
+
+    def test_settings_in_config(self):
+        from achievement import paths, settings
+        st = settings.load()
+        self.assertEqual(Path(st.source).parent.name, "config")
+        for name in ("config.ini", "member_rules.json", "award.json"):
+            self.assertTrue((ROOT / "config" / name).is_file(), name)
+            self.assertFalse((ROOT / name).exists(), f"{name} 应该放在 config/ 里")
+        self.assertEqual(paths.config_candidates("x.json")[0], ROOT / "config" / "x.json")
+
+    def test_runtime_dirs(self):
+        from achievement import paths
+        d = paths.make_dirs("Result", "output")
+        self.assertEqual(d.data, ROOT / "data")
+        self.assertEqual(d.output, ROOT / "output")
+        self.assertEqual(d.logs, ROOT / "logs")
+        self.assertEqual(d.overrides.name, "成就奖_手动调整.json")
+
+    def test_web_routes(self):
+        import tempfile
+        from achievement import paths, settings, store, web
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            dirs = paths.Dirs(result=t / "Result", data=t / "data", output=t / "output", logs=t / "logs")
+            app = web.create_app(store.Store(dirs), settings.Settings())
+            c = app.test_client()
+            self.assertEqual(c.get("/api/version").status_code, 200)
+            self.assertIn(b"v", c.get("/").data)
+            r = c.post("/api/overrides", json={"a": "in", "b": "bad"})
+            self.assertEqual(r.get_json()["count"], 1)
+            self.assertTrue(dirs.overrides.is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

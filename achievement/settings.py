@@ -1,4 +1,4 @@
-"""读取 config/config.ini（网站设定：只限本机 / 局域网、端口、自动开浏览器、Result 位置）。
+"""读取 config/config.ini（网站设定：只限本机 / 局域网、端口、自动开浏览器、Result / 导出位置）。
 
 找不到文件或某一项没写，就用预设值；写错的值会在启动时提示，并改用预设值。
 查找位置和规则表一样：exe 旁边的 config/ → exe 旁边 → 打包在 exe 里的 config/（开发时：项目的 config/）。
@@ -9,7 +9,7 @@ import configparser
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .member_rules import find_file
+from .paths import find_config as find_file
 
 FILE_NAME = "config.ini"
 
@@ -22,6 +22,7 @@ class Settings:
     open_browser: bool = True
     lan_allow_edit: bool = False
     result_folder: str = "Result"
+    output_folder: str = "output"
     source: Path | None = None
     warnings: list = field(default_factory=list)
 
@@ -68,4 +69,5 @@ def load() -> Settings:
     st.open_browser = _bool(srv.get("open_browser", "yes"), True, "open_browser", w)
     st.lan_allow_edit = _bool(srv.get("lan_allow_edit", "no"), False, "lan_allow_edit", w)
     st.result_folder = str(data.get("result_folder", st.result_folder)).strip() or "Result"
+    st.output_folder = str(data.get("output_folder", st.output_folder)).strip() or "output"
     return st
